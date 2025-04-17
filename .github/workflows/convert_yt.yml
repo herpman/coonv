@@ -44,11 +44,11 @@ jobs:
 
       - name: Download YouTube video
         run: |
-          mkdir -p input
+          mkdir -p input sub
+          yt-dlp --cookies youtube_cookies.txt "${{ matrix.url }}" -S vcodec:h264,res,acodec:m4a -o "input/%(title).100s.%(ext)s"
           yt-dlp --cookies youtube_cookies.txt "${{ matrix.url }}" \
-          -S vcodec:h264,res,acodec:m4a \
           --write-sub --write-auto-sub --sub-lang en --convert-subs srt \
-          -o "input/%(title).100s.%(ext)s"
+          -o "sub/%(title).100s.%(ext)s"
 
       - name: Run conversion
         run: |
