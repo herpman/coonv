@@ -1,0 +1,57 @@
+name: Parallel Video Trim & Encoding
+
+on:
+  workflow_dispatch:
+
+jobs:
+  list-videos:
+    name: List videos from rclone remote
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Rclone
+        uses: AnimMouse/setup-rclone@v1
+        with:
+          rclone_config: ${{ secrets.RCLONE_CONF }}
+
+      - name: Get list of videos
+        id: get-files
+        run: |
+          mkdir -p tmp
+          rclone lsf BDoDrive:Sh4r3/Sources --files-only --include "*.mp4" --include "*.mkv" --include "*.mov" --include "*.avi" --include "*.webm" > tmp/filelist.txt
+          jq -R -s -c 'split("\n") | map(select(. != ""))' tmp/filelist.txt > tmp/matrix.json
+
+      - name: Save matrix output
+        id: set-matrix
+        run: |
+          echo "matrix=$(cat tmp/matrix.json)" >> $GITHUB_OUTPUT
+
+  convert:
+    name: Convert ${{ matrix.file }}
+    needs: list-videos
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        file: ${{ fromJson(needs.list-videos.outputs.matrix) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Rclone
+        uses: AnimMouse/setup-rclone@v1
+        with:
+          rclone_config: ${{ secrets.RCLONE_CONF }}
+
+      - name: Run conversion script for single file
+        run: |
+          mkdir -p scripts 
+          rclone copy DBOX:scripts ./scripts
+          chmod +x ./scripts/convert_trim_video.sh
+          ./scripts/convert_trim_video.sh "${{ matrix.file }}"
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
