@@ -22,7 +22,7 @@ jobs:
         id: get-files
         run: |
           mkdir -p tmp
-          rclone lsf BDoDrive:Sh4r3/Sources --files-only --include "*.mp4" --include "*.mkv" --include "*.mov" --include "*.avi" --include "*.webm" > tmp/filelist.txt
+          rclone lsf BDoDrive:dwhelper --files-only --include "*.mp4" --include "*.mkv" --include "*.mov" --include "*.avi" --include "*.webm" > tmp/filelist.txt
           jq -R -s -c 'split("\n") | map(select(. != ""))' tmp/filelist.txt > tmp/matrix.json
 
       - name: Save matrix output
