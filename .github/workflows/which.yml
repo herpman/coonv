@@ -14,9 +14,6 @@ jobs:
       - name: which2
         run: |
           which jq
-      - name: which3
-        run: |
-          which ffmpeg
       - name: which4
         run: |
           which x265
