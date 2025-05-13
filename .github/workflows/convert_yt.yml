@@ -9,6 +9,11 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
+      - name: Disable man-db auto-update
+        run: |
+          echo 'set man-db/auto-update false' | sudo debconf-communicate
+          sudo dpkg-reconfigure man-db
+
       - name: Checkout
         uses: actions/checkout@v3
 
