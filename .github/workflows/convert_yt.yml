@@ -49,7 +49,7 @@ jobs:
           yt-dlp --cookies youtube_cookies.txt --skip-download "${{ matrix.url }}" \
           --write-sub --write-auto-sub --sub-lang en --convert-subs srt \
           -o "sub/%(title).100s.%(ext)s"
-          rclone copy ./sub BDoDrive:Here/out
+          rclone copy ./sub BDoDrive:Here/out/sub
 
       - name: Run conversion
         run: |
