@@ -1,0 +1,17 @@
+name: which
+
+on:
+  workflow_dispatch:
+
+jobs:
+  list-videos:
+    name: which
+    runs-on: ubuntu-latest
+    steps:
+      - name: which
+        run: |
+          which python3
+          which jq
+          which ffmpeg
+          which x265
+          which yt-dlp
