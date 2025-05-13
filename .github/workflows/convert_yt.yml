@@ -38,6 +38,7 @@ jobs:
 
       - name: Install python3 & yt-dlp
         run: |
+          sudo apt-get purge -y man-db
           sudo apt install ffmpeg
           sudo apt-get install jq python3 python3-pip
           pip install yt-dlp
