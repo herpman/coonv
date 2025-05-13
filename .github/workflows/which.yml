@@ -5,13 +5,21 @@ on:
 
 jobs:
   list-videos:
-    name: which
+    name: whichi
     runs-on: ubuntu-latest
     steps:
-      - name: which
+      - name: which1
         run: |
           which python3
+      - name: which2
+        run: |
           which jq
+      - name: which3
+        run: |
           which ffmpeg
+      - name: which4
+        run: |
           which x265
+      - name: which5
+        run: |
           which yt-dlp
