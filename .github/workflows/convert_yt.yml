@@ -51,10 +51,10 @@ jobs:
       - name: Download YouTube video
         run: |
           mkdir -p input sub
-          yt-dlp --cookies youtube_cookies.txt "${{ matrix.url }}" -S vcodec:h264,res,acodec:m4a -o "input"
+          yt-dlp --cookies youtube_cookies.txt "${{ matrix.url }}" -S vcodec:h264,res,acodec:m4a -o "./input"
           yt-dlp --cookies youtube_cookies.txt --skip-download "${{ matrix.url }}" \
           --write-sub --write-auto-sub --sub-lang en --convert-subs srt \
-          -o "sub"
+          -o "./sub"
           rclone copy ./sub BDoDrive:Here/out/sub
 
       - name: Run conversion
