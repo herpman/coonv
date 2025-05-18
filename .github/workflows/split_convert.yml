@@ -1,0 +1,93 @@
+name: Split and Convert Videos
+
+on:
+  workflow_dispatch:
+
+env:
+  SEGMENT_DURATION: 240  # Duration in seconds (240 = 4 minutes)
+
+jobs:
+  list-segments:
+    name: List segments from videos
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup Rclone
+        uses: AnimMouse/setup-rclone@v1
+        with:
+          rclone_config: ${{ secrets.RCLONE_CONF }}
+
+      - name: List segments
+        id: list
+        run: |
+          mkdir -p tmp
+          rclone lsf BDoDrive:dwhelper --files-only --include "*.mp4" --include "*.mkv" --include "*.mov" --include "*.avi" --include "*.webm" > tmp/video_list.txt
+
+          SEGMENT_DURATION=${{ env.SEGMENT_DURATION }}
+
+          echo "[" > tmp/matrix.json
+          while IFS= read -r file; do
+            duration=$(rclone cat "BDoDrive:dwhelper/$file" | ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 -)
+            duration=${duration%.*}
+            total_segments=$(( (duration + SEGMENT_DURATION - 1) / SEGMENT_DURATION ))
+            for (( i=0; i<total_segments; i++ )); do
+              echo "{\"file\": \"$file\", \"index\": $i}," >> tmp/matrix.json
+            done
+          done < tmp/video_list.txt
+          sed -i '$ s/,$//' tmp/matrix.json
+          echo "]" >> tmp/matrix.json
+
+      - name: Set matrix
+        id: set-matrix
+        run: echo "matrix=$(cat tmp/matrix.json)" >> $GITHUB_OUTPUT
+
+  convert-segments:
+    name: Convert video segment
+    needs: list-segments
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include: ${{ fromJson(needs.list-segments.outputs.matrix) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup Rclone
+        uses: AnimMouse/setup-rclone@v1
+        with:
+          rclone_config: ${{ secrets.RCLONE_CONF }}
+
+      - name: Run conversion script
+        run: |
+          mkdir -p scripts
+          rclone copy DBOX:scripts ./scripts
+          chmod +x ./scripts/convert_segment.sh
+          ./scripts/convert_segment.sh "${{ matrix.file }}" "${{ matrix.index }}"
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+          SEGMENT_DURATION: ${{ env.SEGMENT_DURATION }}
+
+  convert-audios:
+    name: Convert full audio
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup Rclone
+        uses: AnimMouse/setup-rclone@v1
+        with:
+          rclone_config: ${{ secrets.RCLONE_CONF }}
+
+      - name: Run audio conversion
+        run: |
+          mkdir -p scripts
+          rclone copy DBOX:scripts ./scripts
+          chmod +x ./scripts/convert_audio.sh
+          ./scripts/convert_audio.sh
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
