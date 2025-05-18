@@ -47,17 +47,11 @@ jobs:
           echo "$matrix_json" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-
-  convert:
-    name: Convert ${{ matrix.file }} [ss=${{ matrix.ss }} t=${{ matrix.t }}]
-    needs: list-segments
+  convert-audios:
+    name: Convert full audio
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include: ${{ fromJson(needs.list-segments.outputs.matrix) }}
-
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v3
 
       - name: Setup Rclone
@@ -65,21 +59,12 @@ jobs:
         with:
           rclone_config: ${{ secrets.RCLONE_CONF }}
 
-      - name: Run conversion script for segment
+      - name: Run audio conversion
         run: |
-          mkdir -p scripts 
-          rclone copy DBOX:scripts ./scripts
-          chmod +x ./scripts/convert_segment.sh
-          ./scripts/convert_segment.sh "${{ matrix.file }}" "${{ matrix.ss }}" "${{ matrix.t }}"
-        env:
-          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
-
-      - name: Run conversion for audio
-        run: |
-          mkdir -p scripts 
+          mkdir -p scripts
           rclone copy DBOX:scripts ./scripts
           chmod +x ./scripts/convert_audio.sh
           ./scripts/convert_audio.sh
         env:
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
-          
+
