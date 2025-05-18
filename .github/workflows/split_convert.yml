@@ -3,9 +3,6 @@ name: Split and Convert Videos
 on:
   workflow_dispatch:
 
-env:
-  
-
 jobs:
   list-segments:
     name: List segments from videos
