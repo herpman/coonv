@@ -73,6 +73,7 @@ jobs:
 
   convert-audios:
     name: Convert full audio
+    needs: list-segments
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
