@@ -56,7 +56,7 @@ jobs:
           MATRIX_ESCAPED="${MATRIX_JSON//'%'/'%25'}"
           MATRIX_ESCAPED="${MATRIX_ESCAPED//$'\n'/'%0A'}"
           MATRIX_ESCAPED="${MATRIX_ESCAPED//$'\r'/'%0D'}"
-          echo "matrix=$MATRIX_ESCAPED" >> $GITHUB_OUTPUT
+          echo "matrix=$MATRIX_ESCAPED" >> "$GITHUB_OUTPUT"
 
   convert-segments:
     name: Convert video segment
