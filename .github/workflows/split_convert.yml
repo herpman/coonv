@@ -29,7 +29,7 @@ jobs:
       - name: Purge man-db
         run: sudo apt-get purge -y man-db
 
-      - name: Install ffmpeg
+      - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y ffmpeg jq
 
       - name: List segments
@@ -37,6 +37,7 @@ jobs:
           mkdir -p tmp
           rclone lsf BDoDrive:dwhelper --files-only --include "*.mp4" --include "*.mkv" --include "*.mov" --include "*.avi" --include "*.webm" > tmp/video_list.txt
 
+          SEGMENT_DURATION=${{ env.SEGMENT_DURATION }}
           echo "[" > tmp/matrix.json
           while IFS= read -r file; do
             duration=$(rclone cat "BDoDrive:dwhelper/$file" | ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 -)
@@ -52,11 +53,8 @@ jobs:
       - name: Set matrix
         id: set-matrix
         run: |
-          MATRIX_JSON=$(cat tmp/matrix.json)
-          MATRIX_ESCAPED="${MATRIX_JSON//'%'/'%25'}"
-          MATRIX_ESCAPED="${MATRIX_ESCAPED//$'\n'/'%0A'}"
-          MATRIX_ESCAPED="${MATRIX_ESCAPED//$'\r'/'%0D'}"
-          echo "matrix=$MATRIX_ESCAPED" >> "$GITHUB_OUTPUT"
+          MATRIX_JSON=$(cat tmp/matrix.json | jq -c .)
+          echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
 
   convert-segments:
     name: Convert video segment
