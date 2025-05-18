@@ -21,6 +21,9 @@ jobs:
       - name: List segments
         id: list
         run: |
+          sudo apt-get purge -y man-db
+          sudo apt install ffmpeg
+
           mkdir -p tmp
           rclone lsf BDoDrive:dwhelper --files-only --include "*.mp4" --include "*.mkv" --include "*.mov" --include "*.avi" --include "*.webm" > tmp/video_list.txt
 
