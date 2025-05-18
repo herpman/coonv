@@ -41,7 +41,12 @@ jobs:
           done < tmp/filelist.txt
           sed -i '$ s/,$//' tmp/matrix.json
           echo "]" >> tmp/matrix.json
-          echo "matrix=$(cat tmp/matrix.json)" >> $GITHUB_OUTPUT
+
+          matrix_json=$(cat tmp/matrix.json | jq -c '.')
+          echo "matrix<<EOF" >> $GITHUB_OUTPUT
+          echo "$matrix_json" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
 
   convert:
     name: Convert ${{ matrix.file }} [ss=${{ matrix.ss }} t=${{ matrix.t }}]
