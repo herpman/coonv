@@ -76,6 +76,7 @@ jobs:
 
   convert_audio:
     name: Convert full audio
+    needs: list-segments
     runs-on: ubuntu-latest
     strategy:
       matrix:
