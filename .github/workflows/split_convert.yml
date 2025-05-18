@@ -29,7 +29,7 @@ jobs:
           rclone lsf BDoDrive:dwhelper --files-only --include "*.mp4" --include "*.mkv" --include "*.mov" --include "*.avi" --include "*.webm" > tmp/filelist.txt
           echo "[" > tmp/matrix.json
           while IFS= read -r file; do
-            duration=$(rclone cat "BDoDrive:Sh4r3/Sources/$file" | ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 -)
+            duration=$(rclone cat "BDoDrive:dwhelper/$file" | ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 -)
             duration=${duration%.*}
             total_segments=$(( (duration + SEGMENT_DURATION - 1) / SEGMENT_DURATION ))
             for (( i=0; i<total_segments; i++ )); do
