@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 env:
-  SEGMENT_DURATION: 240  # Duration in seconds (240 = 4 minutes)
+  
 
 jobs:
   list-segments:
