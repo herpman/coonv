@@ -16,4 +16,6 @@ jobs:
           which jq
       - name: which4
         run: |
+          sudo apt-get update
+          sudo apt install ffmpeg
           ffmpeg -filters | grep rubberband
