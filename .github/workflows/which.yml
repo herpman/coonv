@@ -21,11 +21,13 @@ jobs:
           ffmpeg -filters | grep rubberband
       - name: Create tag
         run: git tag ffmpeg-rb-v1 && git push origin ffmpeg-rb-v1
-      - name: Upload FFmpeg with rubberband to release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ffmpeg-rb-v1
-          files: ffmpeg-rubberband.tar.gz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push ffmpeg-rubberband.tar.gz to repo
+        run: |
+          git config --global user.email "you@example.com"
+          git config --global user.name "GitHub Actions"
+          git pull
+          cp ffmpeg-rubberband.tar.gz ffmpeg-rb.tar.gz  # rename kalau mau
+          git add ffmpeg-rb.tar.gz
+          git commit -m "Add prebuilt ffmpeg with rubberband"
+          git push
 
