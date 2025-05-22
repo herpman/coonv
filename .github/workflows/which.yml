@@ -16,7 +16,4 @@ jobs:
           which jq
       - name: which4
         run: |
-          which x265
-      - name: which5
-        run: |
-          which yt-dlp
+          ffmpeg -filters | grep rubberband
