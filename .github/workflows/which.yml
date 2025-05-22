@@ -19,8 +19,6 @@ jobs:
           sudo apt-get update
           sudo apt install ffmpeg
           ffmpeg -filters | grep rubberband
-      - name: Create tag
-        run: git tag ffmpeg-rb-v1 && git push origin ffmpeg-rb-v1
       - name: Push ffmpeg-rubberband.tar.gz to repo
         run: |
           git config --global user.email "drovvukey@proton.me"
