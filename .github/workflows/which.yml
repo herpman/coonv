@@ -23,7 +23,7 @@ jobs:
         run: git tag ffmpeg-rb-v1 && git push origin ffmpeg-rb-v1
       - name: Push ffmpeg-rubberband.tar.gz to repo
         run: |
-          git config --global user.email "you@example.com"
+          git config --global user.email "drovvukey@proton.me"
           git config --global user.name "GitHub Actions"
           git pull
           cp ffmpeg-rubberband.tar.gz ffmpeg-rb.tar.gz  # rename kalau mau
