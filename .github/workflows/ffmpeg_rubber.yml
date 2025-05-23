@@ -1,0 +1,21 @@
+- name: Install gdown
+  run: pip install gdown
+
+- name: Download custom ffmpeg
+  run: curl -Lo ffmpeg-rubberband.tar.gz https://www.dropbox.com/scl/fi/7avlrv1y7xtho8tb1un47/ffmpeg-rubberband.tar.gz?rlkey=bm2ppuz2frkjndpqtt6fomu7s&dl=1
+
+- name: Extract custom ffmpeg
+  run: |
+    mkdir -p ffmpeg
+    tar -xzf ffmpeg-rubberband.tar.gz -C ffmpeg
+
+- name: Test ffmpeg
+  run: |
+    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$(pwd)/ffmpeg/lib
+    ./ffmpeg/bin/ffmpeg -hide_banner -filters | grep rubberband
+
+- name: Set custom ffmpeg
+  run: |
+    echo "$(pwd)/ffmpeg/bin" >> $GITHUB_PATH
+    echo "LD_LIBRARY_PATH=$(pwd)/ffmpeg/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+    ffmpeg -hide_banner -filters | grep rubberband
