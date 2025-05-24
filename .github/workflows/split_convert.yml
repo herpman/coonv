@@ -78,3 +78,24 @@ jobs:
           ./scripts/convert_segment.sh "${{ matrix.file }}" "${{ matrix.ss }}" "${{ matrix.t }}"
         env:
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+
+  convert-audios:
+    name: Convert full audio
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup Rclone
+        uses: AnimMouse/setup-rclone@v1
+        with:
+          rclone_config: ${{ secrets.RCLONE_CONF }}
+
+      - name: Run audio conversion
+        run: |
+          mkdir -p scripts
+          rclone copy DBOX:scripts ./scripts
+          chmod +x ./scripts/convert_audio.sh
+          ./scripts/convert_audio.sh
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
