@@ -6,11 +6,11 @@ on:
       FPS:
         description: 'FPS (e.g., source, 24)'
         required: false
-        default: 'source'
+        default: ''
       RESOLUTION:
         description: 'Resolution (e.g., source, 1280:-2)'
         required: false
-        default: 'source'
+        default: ''
       CRF:
         description: 'Constant Rate Factor'
         required: false
