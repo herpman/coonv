@@ -1,4 +1,4 @@
-name: Download and Convert YouTube Videos
+name: Convert YouTube Videos 1fps
 
 on:
   workflow_dispatch:
