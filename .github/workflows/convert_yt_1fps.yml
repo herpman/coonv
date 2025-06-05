@@ -1,0 +1,57 @@
+name: Download and Convert YouTube Videos
+
+on:
+  workflow_dispatch:
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Read URLs and set matrix
+        id: set-matrix
+        run: |
+          urls=$(cat yt_urls.txt | grep -v '^#' | awk NF | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "matrix=$urls"
+          echo "matrix=$urls" >> $GITHUB_OUTPUT
+
+  convert:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        url: ${{fromJson(needs.prepare.outputs.matrix)}}
+      fail-fast: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Install python3 & yt-dlp
+        run: |
+          sudo apt install ffmpeg
+          sudo apt-get install jq python3 python3-pip
+          pip install yt-dlp
+
+      - name: Setup Rclone
+        uses: AnimMouse/setup-rclone@v1
+        with:
+          rclone_config: ${{ secrets.RCLONE_CONF }}
+
+      - name: Download YouTube video
+        run: |
+          mkdir -p input
+          yt-dlp --cookies youtube_cookies.txt "${{ matrix.url }}" -S vcodec:h264,res,acodec:m4a -o "input/%(title).100s.%(ext)s"
+
+      - name: Run conversion
+        run: |
+          mkdir -p scripts 
+          rclone copy DBOX:scripts ./scripts
+          chmod +x ./scripts/convert_yt_1fps.sh
+          ./scripts/convert_yt_1fps.sh
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
