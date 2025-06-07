@@ -1,0 +1,37 @@
+name: Rclone Copy
+
+on:
+  workflow_dispatch:
+    inputs:
+      Source:
+        description: 'Source (e.g., BDoDrive:Input)'
+        required: false
+        default: ''
+      Dest:
+        description: 'Dest (e.g., BDoDrive:Output)'
+        required: false
+        default: ''
+
+jobs:
+  list-videos:
+    name: List videos from rclone remote
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Rclone
+        uses: AnimMouse/setup-rclone@v1
+        with:
+          rclone_config: ${{ secrets.RCLONE_CONF }}
+
+      - name: Run Rclone
+        run: |
+          mkdir -p scripts 
+          rclone copy DBOX:scripts ./scripts
+          chmod +x ./scripts/rclone_copy.sh
+          ./scripts/rclone_copy.sh
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+          Source: ${{ github.event.inputs.Source }}
+          Dest: ${{ github.event.inputs.Dest }}
