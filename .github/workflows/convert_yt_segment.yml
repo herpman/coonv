@@ -107,7 +107,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-       - name: Setup Rclone
+      - name: Setup Rclone
         uses: AnimMouse/setup-rclone@v1
         with:
           rclone_config: ${{ secrets.RCLONE_CONF }}
@@ -132,7 +132,7 @@ jobs:
   convert-audios:
     name: Convert full audio
     runs-on: ubuntu-latest
-	strategy:
+    strategy:
       matrix:
         include: ${{ fromJson(needs.download-and-segment.outputs.matrix) }}
 		
