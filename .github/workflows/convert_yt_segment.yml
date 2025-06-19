@@ -128,14 +128,14 @@ jobs:
           PSY_RD: ${{ github.event.inputs.PSY_RD }}
           AQ_MODE: ${{ github.event.inputs.AQ_MODE }}
           AQ_STRENGTH: ${{ github.event.inputs.AQ_STRENGTH }}
-		  
+
   convert-audios:
     name: Convert full audio
     runs-on: ubuntu-latest
     strategy:
       matrix:
         include: ${{ fromJson(needs.download-and-segment.outputs.matrix) }}
-		
+
     steps:
       - name: Checkout
         uses: actions/checkout@v3
