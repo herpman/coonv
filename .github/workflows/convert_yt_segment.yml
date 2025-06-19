@@ -187,6 +187,7 @@ jobs:
           7z x ./Hybrid_Linux.7z
           sudo chmod +x ./hybrid/fdkaac
           sudo mv ./hybrid/fdkaac /usr/local/bin/fdkaac
+          sudo cp -r -T ./hybrid /usr
 
       - name: Convert audios and upload
         env:
