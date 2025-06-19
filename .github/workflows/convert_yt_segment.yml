@@ -1,11 +1,8 @@
-name: Convert YT Segments
+name: Convert Multiple YT Segments
 
 on:
   workflow_dispatch:
     inputs:
-      YT_URL:
-        description: 'YouTube URL to download and split'
-        required: true
       SEGMENT_DURATION:
         description: 'Segment duration in seconds'
         required: false
@@ -44,48 +41,46 @@ on:
         default: '1.00'
 
 jobs:
-  download-and-segment:
-    name: Download and Split Video
+  prepare:
+    name: Download and segment videos
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
-      filename: ${{ steps.download.outputs.filename }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Install yt-dlp, ffmpeg, jq
+      - name: Install dependencies
         run: |
           sudo apt-get purge -y man-db
           sudo apt-get update
           sudo apt-get install -y ffmpeg jq python3 python3-pip
           pip install yt-dlp
 
-      - name: Download YouTube video
-        id: download
+      - name: Download videos from yt_urls.txt
         run: |
           mkdir -p input
-          yt-dlp --cookies youtube_cookies.txt "${{ github.event.inputs.YT_URL }}" -S vcodec:h264,res,acodec:m4a -o "input/video.%(ext)s"
-          FILE=$(ls input/video.* | head -n1)
-          BASENAME=$(basename "$FILE")
-          echo "filename=$BASENAME" >> $GITHUB_OUTPUT
+          cat yt_urls.txt | grep -v '^#' | awk NF > urls_cleaned.txt
+          while IFS= read -r url; do
+            yt-dlp --cookies youtube_cookies.txt "$url" -S vcodec:h264,res,acodec:m4a -o "input/video_%(id)s.%(ext)s"
+          done < urls_cleaned.txt
 
       - name: Generate segment matrix
         id: set-matrix
         env:
           SEGMENT_DURATION: ${{ github.event.inputs.SEGMENT_DURATION }}
         run: |
-          FILE="input/${{ steps.download.outputs.filename }}"
-          duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$FILE")
-          duration=${duration%.*}
-          total_segments=$(( (duration + SEGMENT_DURATION - 1) / SEGMENT_DURATION ))
-
           echo "[" > matrix.json
-          for (( i=0; i<total_segments; i++ )); do
-            ss=$(( i * SEGMENT_DURATION ))
-            t=$SEGMENT_DURATION
-            [ $((ss + t)) -gt $duration ] && t=$((duration - ss))
-            echo "{\"file\": \"$FILE\", \"ss\": $ss, \"t\": $t}," >> matrix.json
+          for file in input/*; do
+            duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file")
+            duration=${duration%.*}
+            total_segments=$(( (duration + SEGMENT_DURATION - 1) / SEGMENT_DURATION ))
+            for (( i=0; i<total_segments; i++ )); do
+              ss=$(( i * SEGMENT_DURATION ))
+              t=$SEGMENT_DURATION
+              [ $((ss + t)) -gt $duration ] && t=$((duration - ss))
+              echo "{\"file\": \"$file\", \"ss\": $ss, \"t\": $t}," >> matrix.json
+            done
           done
           sed -i '$ s/,$//' matrix.json
           echo "]" >> matrix.json
@@ -95,13 +90,14 @@ jobs:
           echo "$matrix_json" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-  convert-segments:
+  convert:
     name: Convert Segments
-    needs: download-and-segment
+    needs: prepare
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        include: ${{ fromJson(needs.download-and-segment.outputs.matrix) }}
+        include: ${{ fromJson(needs.prepare.outputs.matrix) }}
+      fail-fast: false
 
     steps:
       - name: Checkout
@@ -112,9 +108,9 @@ jobs:
         with:
           rclone_config: ${{ secrets.RCLONE_CONF }}
 
-      - name: Run conversion for segment
+      - name: Run segment conversion
         run: |
-          mkdir -p output
+          mkdir -p output scripts
           rclone copy DBOX:scripts ./scripts
           chmod +x ./scripts/convert_yt_segment.sh
           ./scripts/convert_yt_segment.sh "${{ matrix.file }}" "${{ matrix.ss }}" "${{ matrix.t }}"
@@ -128,12 +124,11 @@ jobs:
           PSY_RD: ${{ github.event.inputs.PSY_RD }}
           AQ_MODE: ${{ github.event.inputs.AQ_MODE }}
           AQ_STRENGTH: ${{ github.event.inputs.AQ_STRENGTH }}
-          
+
   convert-audios:
-    name: Convert full audio
-    needs: download-and-segment
+    name: Convert Audios
+    needs: prepare
     runs-on: ubuntu-latest
-    
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -148,6 +143,8 @@ jobs:
           mkdir -p scripts
           rclone copy DBOX:scripts ./scripts
           chmod +x ./scripts/convert_audio_yt_split.sh
-          ./scripts/convert_audio_yt_split.sh "input/${{ needs.download-and-segment.outputs.filename }}"
+          for file in input/*; do
+            ./scripts/convert_audio_yt_split.sh "$file"
+          done
         env:
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
