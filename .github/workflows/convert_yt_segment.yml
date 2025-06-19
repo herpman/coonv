@@ -212,4 +212,4 @@ jobs:
           done
 
           echo "Uploading to remote..."
-          rclone copy ./m4a BDoDrive:Here/HEVC/Audio --progress
+          rclone copy ./m4a BDoDrive:Here/YTSegment/Audio --progress
