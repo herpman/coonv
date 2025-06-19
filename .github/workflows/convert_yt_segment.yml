@@ -88,7 +88,8 @@ jobs:
           SEGMENT_DURATION: ${{ github.event.inputs.SEGMENT_DURATION }}
         run: |
           echo "[" > matrix.json
-          for file in input/*; do
+          for path in input/*; do
+            file=$(basename "$path")
             duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file")
             duration=${duration%.*}
             total_segments=$(( (duration + SEGMENT_DURATION - 1) / SEGMENT_DURATION ))
