@@ -160,8 +160,6 @@ jobs:
           mkdir -p scripts
           rclone copy DBOX:scripts ./scripts
           chmod +x ./scripts/convert_audio_yt_split.sh
-          for file in input/*; do
-            ./scripts/convert_audio_yt_split.sh "$file"
-          done
+          ./scripts/convert_audio_yt_split.sh "$file"
         env:
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
