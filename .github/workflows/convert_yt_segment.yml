@@ -1,4 +1,4 @@
-name: Convert YT Segments
+name: Convert YT Segment
 
 on:
   workflow_dispatch:
