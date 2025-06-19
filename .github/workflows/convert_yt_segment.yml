@@ -175,11 +175,37 @@ jobs:
           name: downloaded-videos
           path: input/
 
-      - name: Run audio conversion
+      - name: Install dependencies
         run: |
-          mkdir -p scripts
-          rclone copy DBOX:scripts ./scripts
-          chmod +x ./scripts/convert_audio_yt_split.sh
-          ./scripts/convert_audio_yt_split.sh "$file"
+          sudo apt-get purge -y man-db
+          sudo apt-get update
+          sudo apt-get install -y p7zip-full curl jq
+          curl -L "https://www.selur.de/files/hybrid_downloads/Hybrid_20250517_Linux.7z" -o "./Hybrid_Linux.7z"
+          7z x ./Hybrid_Linux.7z
+          sudo chmod +x ./hybrid/fdkaac
+          sudo mv ./hybrid/fdkaac /usr/local/bin/fdkaac
+
+      - name: Convert audios and upload
         env:
+          AUDIO_BITRATE: 25k
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+        run: |
+          mkdir -p ~/.config/rclone
+          echo "${RCLONE_CONF}" | base64 -d > ~/.config/rclone/rclone.conf
+
+          mkdir -p wav wav_stereo m4a
+          
+          for f in input/*; do
+            name=$(basename "$f" .mp4)
+            echo "Converting $f to WAV..."
+            ffmpeg -i "$f" -vn -c:a pcm_s32le "wav/${name}.wav"
+
+            echo "Converting to stereo 44.1kHz..."
+            ffmpeg -i "wav/${name}.wav" -ac 2 -ar 44100 "wav_stereo/${name}_stereo.wav"
+
+            echo "Encoding with fdkaac..."
+            fdkaac --profile 29 -b "$AUDIO_BITRATE" -o "m4a/${name}.m4a" "wav_stereo/${name}_stereo.wav"
+          done
+
+          echo "Uploading to remote..."
+          rclone copy ./m4a BDoDrive:Here/HEVC/Audio --progress
