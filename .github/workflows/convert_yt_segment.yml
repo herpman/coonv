@@ -131,6 +131,7 @@ jobs:
           
   convert-audios:
     name: Convert full audio
+	needs: download-and-segment
     runs-on: ubuntu-latest
     strategy:
       matrix:
