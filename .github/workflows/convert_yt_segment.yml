@@ -90,7 +90,7 @@ jobs:
           echo "[" > matrix.json
           for path in input/*; do
             file=$(basename "$path")
-            duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file")
+            duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$path")
             duration=${duration%.*}
             total_segments=$(( (duration + SEGMENT_DURATION - 1) / SEGMENT_DURATION ))
             for (( i=0; i<total_segments; i++ )); do
