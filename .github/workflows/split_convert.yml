@@ -61,7 +61,14 @@ jobs:
           SEGMENT_DURATION: ${{ github.event.inputs.SEGMENT_DURATION }}
         run: |
           sudo apt-get purge -y man-db
-          sudo apt install ffmpeg
+          sudo apt install -y p7zip-full
+          curl -L "https://www.dropbox.com/scl/fi/bdioefcl1dce4zs7iqqr6/ffmpeg-release-amd64-static.tar.xz?rlkey=npbqixqrbarhmuymm4ps5em45&dl=1" -o "ffmpeg.tar.xz"
+          curl -L "https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v6.1/ffprobe-6.1-linux-64.zip" -o "./ffprobe-6.1-linux-64.zip"
+          tar -xf ffmpeg.tar.xz
+          7z x ./ffprobe-6.1-linux-64.zip
+          sudo mv ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/
+          sudo mv ./ffprobe /usr/local/bin/ffprobe
+          sudo chmod +x /usr/local/bin/ffmpeg
           mkdir -p tmp
           rclone lsf BDoDrive:dwhelper --files-only --include "*.mp4" --include "*.mkv" --include "*.mov" --include "*.avi" --include "*.webm" > tmp/filelist.txt
           echo "[" > tmp/matrix.json
