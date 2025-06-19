@@ -53,7 +53,14 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get purge -y man-db
-          sudo apt install ffmpeg
+          sudo apt install -y p7zip-full
+          curl -L "https://www.dropbox.com/scl/fi/bdioefcl1dce4zs7iqqr6/ffmpeg-release-amd64-static.tar.xz?rlkey=npbqixqrbarhmuymm4ps5em45&dl=1" -o "ffmpeg.tar.xz"
+          curl -L "https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v6.1/ffprobe-6.1-linux-64.zip" -o "./ffprobe-6.1-linux-64.zip"
+          tar -xf ffmpeg.tar.xz
+          7z x ./ffprobe-6.1-linux-64.zip
+          sudo mv ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/
+          sudo mv ./ffprobe /usr/local/bin/ffprobe
+          sudo chmod +x /usr/local/bin/ffmpeg
           sudo apt-get install jq python3 python3-pip
           pip install yt-dlp
 
