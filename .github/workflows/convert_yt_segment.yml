@@ -79,8 +79,8 @@ jobs:
             yt-dlp --cookies youtube_cookies.txt --no-playlist --skip-download "$url" --write-thumbnail --write-description --convert-thumbnails jpg -P "desc"
           done < urls_cleaned.txt
           find desc -type f -name "*.description" -exec bash -c 'mv "$0" "${0%.description}.txt"' {} \;
-          rclone copy ./sub BDoDrive:Here/YTout/sub
-          rclone copy ./desc BDoDrive:Here/YTout/desc
+          rclone copy ./sub BDoDrive:Here/YTSegment/sub
+          rclone copy ./desc BDoDrive:Here/YTSegment/desc
 
       - name: Generate segment matrix
         id: set-matrix
