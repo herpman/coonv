@@ -133,10 +133,7 @@ jobs:
     name: Convert full audio
     needs: download-and-segment
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include: ${{ fromJson(needs.download-and-segment.outputs.matrix) }}
-
+    
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -151,6 +148,6 @@ jobs:
           mkdir -p scripts
           rclone copy DBOX:scripts ./scripts
           chmod +x ./scripts/convert_audio_yt_split.sh
-          ./scripts/convert_audio_yt_split.sh
+          ./scripts/convert_audio_yt_split.sh "input/${{ needs.download-and-segment.outputs.filename }}"
         env:
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
