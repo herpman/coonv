@@ -1,0 +1,155 @@
+name: Convert YT Segment
+
+on:
+  workflow_dispatch:
+    inputs:
+      YT_URL:
+        description: 'YouTube URL to download and split'
+        required: true
+      SEGMENT_DURATION:
+        description: 'Segment duration in seconds'
+        required: false
+        default: '240'
+      FPS:
+        description: 'FPS (e.g., source, 24)'
+        required: false
+        default: 'source'
+      RESOLUTION:
+        description: 'Resolution (e.g., source, 1280:-2)'
+        required: false
+        default: 'source'
+      CRF:
+        description: 'Constant Rate Factor'
+        required: false
+        default: '29.5'
+      DEBLOCK:
+        description: 'Deblock settings (e.g., 0:0)'
+        required: false
+        default: '0:0'
+      RD:
+        description: 'RD value'
+        required: false
+        default: '6'
+      PSY_RD:
+        description: 'Psy-RD value'
+        required: false
+        default: '1.00'
+      AQ_MODE:
+        description: 'AQ Mode (e.g., 2)'
+        required: false
+        default: '2'
+      AQ_STRENGTH:
+        description: 'AQ Strength'
+        required: false
+        default: '1.00'
+
+jobs:
+  download-and-segment:
+    name: Download and Split Video
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      filename: ${{ steps.download.outputs.filename }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Install yt-dlp, ffmpeg, jq
+        run: |
+          sudo apt-get purge -y man-db
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg jq python3 python3-pip
+          pip install yt-dlp
+
+      - name: Download YouTube video
+        id: download
+        run: |
+          mkdir -p input
+          yt-dlp --cookies youtube_cookies.txt "${{ github.event.inputs.YT_URL }}" -S vcodec:h264,res,acodec:m4a -o "input/video.%(ext)s"
+          FILE=$(ls input/video.* | head -n1)
+          BASENAME=$(basename "$FILE")
+          echo "filename=$BASENAME" >> $GITHUB_OUTPUT
+
+      - name: Generate segment matrix
+        id: set-matrix
+        env:
+          SEGMENT_DURATION: ${{ github.event.inputs.SEGMENT_DURATION }}
+        run: |
+          FILE="input/${{ steps.download.outputs.filename }}"
+          duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$FILE")
+          duration=${duration%.*}
+          total_segments=$(( (duration + SEGMENT_DURATION - 1) / SEGMENT_DURATION ))
+
+          echo "[" > matrix.json
+          for (( i=0; i<total_segments; i++ )); do
+            ss=$(( i * SEGMENT_DURATION ))
+            t=$SEGMENT_DURATION
+            [ $((ss + t)) -gt $duration ] && t=$((duration - ss))
+            echo "{\"file\": \"$FILE\", \"ss\": $ss, \"t\": $t}," >> matrix.json
+          done
+          sed -i '$ s/,$//' matrix.json
+          echo "]" >> matrix.json
+
+          matrix_json=$(cat matrix.json | jq -c '.')
+          echo "matrix<<EOF" >> $GITHUB_OUTPUT
+          echo "$matrix_json" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+  convert-segments:
+    name: Convert Segments
+    needs: download-and-segment
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include: ${{ fromJson(needs.download-and-segment.outputs.matrix) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+       - name: Setup Rclone
+        uses: AnimMouse/setup-rclone@v1
+        with:
+          rclone_config: ${{ secrets.RCLONE_CONF }}
+
+      - name: Run conversion for segment
+        run: |
+          mkdir -p output
+          rclone copy DBOX:scripts ./scripts
+          chmod +x ./scripts/convert_yt_segment.sh
+          ./scripts/convert_yt_segment.sh "${{ matrix.file }}" "${{ matrix.ss }}" "${{ matrix.t }}"
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+          FPS: ${{ github.event.inputs.FPS }}
+          RESOLUTION: ${{ github.event.inputs.RESOLUTION }}
+          CRF: ${{ github.event.inputs.CRF }}
+          DEBLOCK: ${{ github.event.inputs.DEBLOCK }}
+          RD: ${{ github.event.inputs.RD }}
+          PSY_RD: ${{ github.event.inputs.PSY_RD }}
+          AQ_MODE: ${{ github.event.inputs.AQ_MODE }}
+          AQ_STRENGTH: ${{ github.event.inputs.AQ_STRENGTH }}
+		  
+  convert-audios:
+    name: Convert full audio
+    runs-on: ubuntu-latest
+	strategy:
+      matrix:
+        include: ${{ fromJson(needs.download-and-segment.outputs.matrix) }}
+		
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup Rclone
+        uses: AnimMouse/setup-rclone@v1
+        with:
+          rclone_config: ${{ secrets.RCLONE_CONF }}
+
+      - name: Run audio conversion
+        run: |
+          mkdir -p scripts
+          rclone copy DBOX:scripts ./scripts
+          chmod +x ./scripts/convert_audio_yt_split.sh
+          ./scripts/convert_audio_yt_split.sh
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
