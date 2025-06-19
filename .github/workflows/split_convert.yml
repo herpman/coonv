@@ -66,6 +66,7 @@ jobs:
           curl -L "https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v6.1/ffprobe-6.1-linux-64.zip" -o "./ffprobe-6.1-linux-64.zip"
           tar -xf ffmpeg.tar.xz
           7z x ./ffprobe-6.1-linux-64.zip
+          sudo chmod +x ./ffprobe
           sudo mv ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/
           sudo mv ./ffprobe /usr/local/bin/ffprobe
           sudo chmod +x /usr/local/bin/ffmpeg
