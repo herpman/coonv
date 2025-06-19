@@ -71,7 +71,7 @@ jobs:
 
       - name: Download videos from yt_urls.txt
         run: |
-          mkdir -p input
+          mkdir -p input sub desc
           cat yt_urls.txt | grep -v '^#' | awk NF > urls_cleaned.txt
           while IFS= read -r url; do
             yt-dlp --cookies youtube_cookies.txt --no-playlist "$url" -S vcodec:h264,res,acodec:m4a -P "input"
