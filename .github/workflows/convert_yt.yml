@@ -88,10 +88,11 @@ jobs:
         run: |
           mkdir -p input sub
           yt-dlp --cookies youtube_cookies.txt "${{ matrix.url }}" -S vcodec:h264,res,acodec:m4a -P "input"
-          yt-dlp --cookies youtube_cookies.txt --skip-download "${{ matrix.url }}" \
-          --write-sub --write-auto-sub --sub-lang en --convert-subs srt \
-          -P "sub"
-          rclone copy ./sub BDoDrive:Here/out/sub
+          yt-dlp --cookies youtube_cookies.txt --no-playlist --skip-download "${{ matrix.url }}" --write-sub --write-auto-sub --sub-lang en --convert-subs srt -P "sub"
+          yt-dlp --cookies youtube_cookies.txt --no-playlist --skip-download "${{ matrix.url }}" --write-thumbnail --write-description --convert-thumbnails jpg -P "desc"
+          find desc -type f -name "*.description" -exec bash -c 'mv "$0" "${0%.description}.txt"' {} \;
+          rclone copy ./sub BDoDrive:Here/YTout/sub
+          rclone copy ./desc BDoDrive:Here/YTout/desc
 
       - name: Run conversion
         run: |
