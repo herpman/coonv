@@ -2,6 +2,39 @@ name: Convert Video Test
 
 on:
   workflow_dispatch:
+    inputs:
+      FPS:
+        description: 'FPS (e.g., source, 24)'
+        required: false
+        default: '1'
+      RESOLUTION:
+        description: 'Resolution (e.g., source, 1280:-2)'
+        required: false
+        default: '640:-2'
+      CRF:
+        description: 'Constant Rate Factor'
+        required: false
+        default: '50'
+      DEBLOCK:
+        description: 'Deblock settings (e.g., 0:0)'
+        required: false
+        default: '0:0'
+      RD:
+        description: 'RD value'
+        required: false
+        default: '3'
+      PSY_RD:
+        description: 'Psy-RD value'
+        required: false
+        default: '0.00'
+      AQ_MODE:
+        description: 'AQ Mode (e.g., 2)'
+        required: false
+        default: '2'
+      AQ_STRENGTH:
+        description: 'AQ Strength'
+        required: false
+        default: '0.60'
 
 jobs:
   list-videos:
@@ -51,7 +84,16 @@ jobs:
         run: |
           mkdir -p scripts 
           rclone copy DBOX:scripts ./scripts
-          chmod +x ./scripts/convert_1fps.sh
-          ./scripts/convert_1fps.sh "${{ matrix.file }}"
+          chmod +x ./scripts/convert_single_video.sh
+          ./scripts/convert_single_video.sh "${{ matrix.file }}"
         env:
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+          FPS: ${{ github.event.inputs.FPS }}
+          RESOLUTION: ${{ github.event.inputs.RESOLUTION }}
+          CRF: ${{ github.event.inputs.CRF }}
+          DEBLOCK: ${{ github.event.inputs.DEBLOCK }}
+          RD: ${{ github.event.inputs.RD }}
+          PSY_RD: ${{ github.event.inputs.PSY_RD }}
+          AQ_MODE: ${{ github.event.inputs.AQ_MODE }}
+          AQ_STRENGTH: ${{ github.event.inputs.AQ_STRENGTH }}
+          
