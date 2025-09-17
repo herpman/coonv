@@ -84,8 +84,8 @@ jobs:
         run: |
           mkdir -p scripts 
           rclone copy DBOX:scripts ./scripts
-          chmod +x ./scripts/convert_single_video.sh
-          ./scripts/convert_single_video.sh "${{ matrix.file }}"
+          chmod +x ./scripts/convert_1fps.sh
+          ./scripts/convert_1fps.sh "${{ matrix.file }}"
         env:
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
           FPS: ${{ github.event.inputs.FPS }}
