@@ -78,6 +78,8 @@ jobs:
           sudo chmod +x /usr/local/bin/ffmpeg
           sudo apt-get install jq python3 python3-pip nodejs
           pip install yt-dlp
+          pip install -U "yt-dlp[default]"
+          pip install -U yt-dlp-ejs
 
       - name: Setup Rclone
         uses: AnimMouse/setup-rclone@v1
@@ -87,7 +89,7 @@ jobs:
       - name: Download YouTube video
         run: |
           mkdir -p input sub
-          yt-dlp --downloader-args javascript='-e node' --cookies youtube_cookies.txt "${{ matrix.url }}" -S vcodec:h264,res,acodec:m4a -P "input"
+          yt-dlp --js-runtimes node --downloader-args javascript='-e node' --cookies youtube_cookies.txt "${{ matrix.url }}" -S vcodec:h264,res,acodec:m4a -P "input"
           yt-dlp --cookies youtube_cookies.txt --no-playlist --skip-download "${{ matrix.url }}" --write-sub --write-auto-sub --sub-lang en --convert-subs srt -P "sub"
           yt-dlp --cookies youtube_cookies.txt --no-playlist --skip-download "${{ matrix.url }}" --write-thumbnail --write-description --convert-thumbnails jpg -P "desc"
           find desc -type f -name "*.description" -exec bash -c 'mv "$0" "${0%.description}.txt"' {} \;
