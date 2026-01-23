@@ -80,6 +80,8 @@ jobs:
           pip install yt-dlp
           pip install -U "yt-dlp[default]"
           pip install -U yt-dlp-ejs
+          python -m pip install -U --pre "yt-dlp[default]"
+          yt-dlp --update-to nightly
 
       - name: Setup Rclone
         uses: AnimMouse/setup-rclone@v1
