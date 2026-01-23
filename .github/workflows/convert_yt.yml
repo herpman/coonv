@@ -89,7 +89,7 @@ jobs:
       - name: Download YouTube video
         run: |
           mkdir -p input sub
-          yt-dlp --js-runtimes node --downloader-args javascript='-e node' --fragment-retries infinite --concurrent-fragments 10 --cookies youtube_cookies.txt --extractor-args "ios:player-client=android,web_safari" "${{ matrix.url }}" -S res,vcodec:h264,acodec:m4a -P "input"
+          yt-dlp --js-runtimes node --downloader-args javascript='-e node' --fragment-retries infinite --concurrent-fragments 10 --cookies youtube_cookies.txt --extractor-args "youtube:player-client=ios,web_safari" "${{ matrix.url }}" -S res,vcodec:h264,acodec:m4a -P "input"
           yt-dlp --cookies youtube_cookies.txt --no-playlist --skip-download "${{ matrix.url }}" --write-sub --write-auto-sub --sub-lang en --convert-subs srt -P "sub"
           yt-dlp --cookies youtube_cookies.txt --no-playlist --skip-download "${{ matrix.url }}" --write-thumbnail --write-description --convert-thumbnails jpg -P "desc"
           find desc -type f -name "*.description" -exec bash -c 'mv "$0" "${0%.description}.txt"' {} \;
