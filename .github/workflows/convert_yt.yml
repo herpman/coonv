@@ -89,9 +89,9 @@ jobs:
       - name: Download YouTube video
         run: |
           mkdir -p input sub
-          yt-dlp --js-runtimes node --downloader-args javascript='-e node' --fragment-retries infinite --concurrent-fragments 10 --cookies youtube_cookies.txt --no-playlist -t sleep --restrict-filenames -o "%(title).100s [%(id)s].%(ext)s" -S res,vcodec:h264,acodec:m4a -P "input" "${{ matrix.url }}"
-          yt-dlp --js-runtimes node --downloader-args javascript='-e node' --fragment-retries infinite --concurrent-fragments 10 --cookies youtube_cookies.txt --no-playlist -t sleep --skip-download --restrict-filenames -o "%(title).100s [%(id)s].%(ext)s" --write-sub --write-auto-sub --sub-lang en --convert-subs srt -P "sub" "${{ matrix.url }}"
-          yt-dlp --js-runtimes node --downloader-args javascript='-e node' --fragment-retries infinite --concurrent-fragments 10 --cookies youtube_cookies.txt --no-playlist -t sleep --skip-download --restrict-filenames -o "%(title).100s [%(id)s].%(ext)s" --write-thumbnail --write-description --convert-thumbnails jpg -P "desc" "${{ matrix.url }}"
+          yt-dlp --js-runtimes node --downloader-args javascript='-e node' --fragment-retries infinite --concurrent-fragments 10 --cookies youtube_cookies.txt --no-playlist -t sleep --restrict-filenames -o "%(title).80s_%(id)s.%(ext)s" -S res,vcodec:h264,acodec:m4a -P "input" "${{ matrix.url }}"
+          yt-dlp --js-runtimes node --downloader-args javascript='-e node' --fragment-retries infinite --concurrent-fragments 10 --cookies youtube_cookies.txt --no-playlist -t sleep --skip-download --restrict-filenames -o "%(title).80s_%(id)s.%(ext)s" --write-sub --write-auto-sub --sub-lang en --convert-subs srt -P "sub" "${{ matrix.url }}"
+          yt-dlp --js-runtimes node --downloader-args javascript='-e node' --fragment-retries infinite --concurrent-fragments 10 --cookies youtube_cookies.txt --no-playlist -t sleep --skip-download --restrict-filenames -o "%(title).80s_%(id)s.%(ext)s" --write-thumbnail --write-description --convert-thumbnails jpg -P "desc" "${{ matrix.url }}"
           find desc -type f -name "*.description" -exec bash -c 'mv "$0" "${0%.description}.txt"' {} \;
           rclone copy ./sub HerpDrive:Here/YTout/sub
           rclone copy ./desc HerpDrive:Here/YTout/desc
