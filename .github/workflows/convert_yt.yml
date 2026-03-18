@@ -76,14 +76,10 @@ jobs:
           tar -xf ffmpeg.tar.xz
           sudo mv ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/
           sudo chmod +x /usr/local/bin/ffmpeg
-          sudo apt-get install jq python3 python3-pip nodejs
-          pip install yt-dlp
-          pip install -U "yt-dlp[default]"
-          pip install -U yt-dlp-ejs
-          python -m pip install -U --pre "yt-dlp[default]"
+          sudo apt-get install jq python3 python3-pip
           python -m pip install --upgrade pip
-          pip install "yt-dlp[default,curl-cffi]"
-          yt-dlp --update-to nightly
+          python -m pip install -U "yt-dlp[default,curl-cffi]" yt-dlp-ejs --pre
+          yt-dlp --version
 
       - name: Setup Rclone
         uses: AnimMouse/setup-rclone@v1
