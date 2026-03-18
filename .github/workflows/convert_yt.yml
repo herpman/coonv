@@ -48,7 +48,7 @@ jobs:
           sudo dpkg-reconfigure man-db
 
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v5
 
       - name: Read URLs and set matrix
         id: set-matrix
@@ -67,7 +67,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v5
 
       - name: Install python3 & yt-dlp
         run: |
@@ -81,6 +81,8 @@ jobs:
           pip install -U "yt-dlp[default]"
           pip install -U yt-dlp-ejs
           python -m pip install -U --pre "yt-dlp[default]"
+          python -m pip install --upgrade pip
+          pip install "yt-dlp[default,curl-cffi]"
           yt-dlp --update-to nightly
 
       - name: Setup Rclone
