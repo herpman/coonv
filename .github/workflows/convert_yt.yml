@@ -91,7 +91,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg
           mkdir -p input sub
-          yt-dlp --js-runtimes node --downloader-args javascript='-e node' --fragment-retries 20 --concurrent-fragments 5 --cookies youtube_cookies.txt --no-playlist -t sleep --restrict-filenames --hls-use-mpegts --no-abort-on-error -o "%(title).80s_%(id)s.%(ext)s" -S res,vcodec:h264,acodec:m4a -P "input" "${{ matrix.url }}"
+          yt-dlp --js-runtimes node --downloader-args javascript='-e node' --fragment-retries 5 --concurrent-fragments 1 --cookies youtube_cookies.txt --no-playlist -t sleep --restrict-filenames --hls-use-mpegts --no-abort-on-error -o "%(title).80s_%(id)s.%(ext)s" -S res,vcodec:h264,acodec:m4a -P "input" "${{ matrix.url }}" || true
           yt-dlp --js-runtimes node --downloader-args javascript='-e node' --fragment-retries 20 --concurrent-fragments 5 --cookies youtube_cookies.txt --no-playlist -t sleep --skip-download --restrict-filenames -o "%(title).80s_%(id)s.%(ext)s" --write-sub --write-auto-sub --sub-lang en --convert-subs srt -P "sub" "${{ matrix.url }}"
           yt-dlp --js-runtimes node --downloader-args javascript='-e node' --fragment-retries 20 --concurrent-fragments 5 --cookies youtube_cookies.txt --no-playlist -t sleep --skip-download --restrict-filenames -o "%(title).80s_%(id)s.%(ext)s" --write-thumbnail --write-description --convert-thumbnails jpg -P "desc" "${{ matrix.url }}"
           find desc -type f -name "*.description" -exec bash -c 'mv "$0" "${0%.description}.txt"' {} \;
