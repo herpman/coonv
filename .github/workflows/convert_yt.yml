@@ -76,6 +76,10 @@ jobs:
           tar -xf ffmpeg.tar.xz
           sudo mv ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/
           sudo chmod +x /usr/local/bin/ffmpeg
+          curl -L "https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v6.1/ffprobe-6.1-linux-64.zip" -o "./ffprobe-6.1-linux-64.zip"
+          7z x ./ffprobe-6.1-linux-64.zip || (sudo apt-get update && sudo apt-get install -y p7zip-full && 7z x ./ffprobe-6.1-linux-64.zip)
+          sudo chmod +x ./ffprobe
+          sudo mv ./ffprobe /usr/local/bin/ffprobe
           sudo apt-get install jq python3 python3-pip
           python -m pip install --upgrade pip
           python -m pip install -U "yt-dlp[default,curl-cffi]" yt-dlp-ejs --pre
@@ -88,8 +92,6 @@ jobs:
 
       - name: Download YouTube video
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
           mkdir -p input sub
           yt-dlp --js-runtimes node --downloader-args javascript='-e node' --fragment-retries 5 --concurrent-fragments 1 --cookies youtube_cookies.txt --no-playlist -t sleep --restrict-filenames --hls-use-mpegts --no-abort-on-error -o "%(title).80s_%(id)s.%(ext)s" -S res,vcodec:h264,acodec:m4a -P "input" "${{ matrix.url }}" || true
           yt-dlp --js-runtimes node --downloader-args javascript='-e node' --fragment-retries 20 --concurrent-fragments 5 --cookies youtube_cookies.txt --no-playlist -t sleep --skip-download --restrict-filenames -o "%(title).80s_%(id)s.%(ext)s" --write-sub --write-auto-sub --sub-lang en --convert-subs srt -P "sub" "${{ matrix.url }}"
