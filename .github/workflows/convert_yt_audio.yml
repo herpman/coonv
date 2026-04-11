@@ -66,7 +66,6 @@ jobs:
             --concurrent-fragments 1 \
             --cookies youtube_cookies.txt \
             --no-playlist -t sleep \
-            --restrict-filenames \
             --write-thumbnail --convert-thumbnails jpg \
             --write-description \
             --no-abort-on-error \
