@@ -60,9 +60,16 @@ jobs:
           mkdir -p input desc
           # Ambil Best Audio (M4A diutamakan agar metadata gampang ditarik)
           yt-dlp -f "ba[ext=m4a]/ba" \
+            --js-runtimes node \
+            --downloader-args javascript='-e node' \
+            --fragment-retries 5 \
+            --concurrent-fragments 1 \
+            --cookies youtube_cookies.txt \
+            --no-playlist -t sleep \
             --restrict-filenames \
             --write-thumbnail --convert-thumbnails jpg \
             --write-description \
+            --no-abort-on-error \
             -o "%(title).80s_%(id)s.%(ext)s" \
             -P "input" "${{ matrix.url }}"
           
