@@ -1,0 +1,77 @@
+name: Audio Download and Convert
+
+on:
+  workflow_dispatch:
+    inputs:
+      AUDIO_BITRATE:
+        description: 'Bitrate (e.g., 25k, 32k)'
+        required: false
+        default: '25k'
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Read URLs and set matrix
+        id: set-matrix
+        run: |
+          urls=$(cat yt_urls.txt | grep -v '^#' | awk NF | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "matrix=$urls" >> $GITHUB_OUTPUT
+
+  convert:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        url: ${{fromJson(needs.prepare.outputs.matrix)}}
+      fail-fast: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Dependencies
+        run: |
+          # Install FFmpeg Static & FFprobe
+          curl -L "https://ffbinaries.com/api/v1/get?p=linux-64&t=ffmpeg" -o ffmpeg.zip
+          curl -L "https://ffbinaries.com/api/v1/get?p=linux-64&t=ffprobe" -o ffprobe.zip
+          unzip -o ffmpeg.zip && unzip -o ffprobe.zip
+          sudo mv ffmpeg ffprobe /usr/local/bin/
+          sudo chmod +x /usr/local/bin/ffmpeg /usr/local/bin/ffprobe
+          
+          # Install yt-dlp
+          python3 -m pip install -U "yt-dlp[default,curl-cffi]"
+
+      - name: Setup Rclone
+        uses: AnimMouse/setup-rclone@v1
+        with:
+          rclone_config: ${{ secrets.RCLONE_CONF }}
+
+      - name: Download Audio & Assets
+        run: |
+          mkdir -p input desc
+          # Ambil Best Audio (M4A diutamakan agar metadata gampang ditarik)
+          yt-dlp -f "ba[ext=m4a]/ba" \
+            --restrict-filenames \
+            --write-thumbnail --convert-thumbnails jpg \
+            --write-description \
+            -o "%(title).80s_%(id)s.%(ext)s" \
+            -P "input" "${{ matrix.url }}"
+          
+          # Pindahkan thumbnail ke folder desc untuk diproses script
+          find input -type f -name "*.jpg" -exec mv {} desc/ \;
+          find input -type f -name "*.description" -exec bash -c 'mv "$0" "desc/${0%.description}.txt"' {} \;
+
+      - name: Run conversion
+        run: |
+          mkdir -p scripts 
+          rclone copy DBOX:scripts ./scripts
+          chmod +x ./scripts/yt_audio.sh
+          ./scripts/yt_audio.sh
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+          AUDIO_BITRATE: ${{ github.event.inputs.AUDIO_BITRATE }}
