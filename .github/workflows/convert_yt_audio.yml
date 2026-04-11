@@ -37,11 +37,15 @@ jobs:
       - name: Install Dependencies
         run: |
           # Install FFmpeg Static & FFprobe
-          curl -L "https://ffbinaries.com/api/v1/get?p=linux-64&t=ffmpeg" -o ffmpeg.zip
-          curl -L "https://ffbinaries.com/api/v1/get?p=linux-64&t=ffprobe" -o ffprobe.zip
-          unzip -o ffmpeg.zip && unzip -o ffprobe.zip
-          sudo mv ffmpeg ffprobe /usr/local/bin/
-          sudo chmod +x /usr/local/bin/ffmpeg /usr/local/bin/ffprobe
+          sudo apt-get purge -y man-db
+          curl -L "https://www.dropbox.com/scl/fi/bdioefcl1dce4zs7iqqr6/ffmpeg-release-amd64-static.tar.xz?rlkey=npbqixqrbarhmuymm4ps5em45&dl=1" -o "ffmpeg.tar.xz"
+          tar -xf ffmpeg.tar.xz
+          sudo mv ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/
+          sudo chmod +x /usr/local/bin/ffmpeg
+          curl -L "https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v6.1/ffprobe-6.1-linux-64.zip" -o "./ffprobe-6.1-linux-64.zip"
+          7z x ./ffprobe-6.1-linux-64.zip || (sudo apt-get update && sudo apt-get install -y p7zip-full && 7z x ./ffprobe-6.1-linux-64.zip)
+          sudo chmod +x ./ffprobe
+          sudo mv ./ffprobe /usr/local/bin/ffprobe
           
           # Install yt-dlp
           python3 -m pip install -U "yt-dlp[default,curl-cffi]"
