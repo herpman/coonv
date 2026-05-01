@@ -58,6 +58,7 @@ jobs:
       - name: Download Audio & Assets
         run: |
           mkdir -p input desc
+          mkdir -p input sub
           # Ambil Best Audio (M4A diutamakan agar metadata gampang ditarik)
           yt-dlp -f "ba[ext=m4a]/ba" \
             --js-runtimes node \
@@ -71,6 +72,8 @@ jobs:
             --no-abort-on-error \
             -o "%(title).80s_%(id)s.%(ext)s" \
             -P "input" "${{ matrix.url }}"
+          yt-dlp --js-runtimes node --downloader-args javascript='-e node' --fragment-retries 5 --concurrent-fragments 5 --cookies youtube_cookies.txt --no-playlist -t sleep --skip-download --restrict-filenames -o "%(title).80s_%(id)s.%(ext)s" --write-sub --write-auto-sub --sub-lang en --convert-subs srt -P "sub" "${{ matrix.url }}" || true
+          rclone copy ./sub HerpDrive:Here/YTout/Audio/sub
           
           # Pindahkan thumbnail ke folder desc untuk diproses script
           find input -type f -name "*.jpg" -exec mv {} desc/ \;
