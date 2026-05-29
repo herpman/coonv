@@ -1,0 +1,203 @@
+name: Download, Split, and Parallel Convert
+
+on:
+  workflow_dispatch:
+    inputs:
+      DOWNLOADER:
+        description: 'Pilih Tool Download (wget, curl, aria2, gdown)'
+        required: true
+        default: 'wget'
+        type: choice
+        options:
+          - wget
+          - curl
+          - aria2
+          - gdown
+      DURATION:
+        description: 'Durasi potongan video dalam detik (misal: 120).'
+        required: true
+        default: '120'
+      FPS:
+        description: 'FPS (e.g., source, 24)'
+        required: false
+        default: 'source'
+      RESOLUTION:
+        description: 'Resolution (e.g., source, 1280:-2)'
+        required: false
+        default: 'source'
+      CRF:
+        description: 'Constant Rate Factor'
+        required: false
+        default: '29.5'
+      DEBLOCK:
+        description: 'Deblock settings (e.g., 0:0)'
+        required: false
+        default: '0:0'
+      RD:
+        description: 'RD value'
+        required: false
+        default: '6'
+      PSY_RD:
+        description: 'Psy-RD value'
+        required: false
+        default: '1.00'
+      AQ_MODE:
+        description: 'AQ Mode (e.g., 2)'
+        required: false
+        default: '2'
+      AQ_STRENGTH:
+        description: 'AQ Strength'
+        required: false
+        default: '1.00'
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      urls: ${{ steps.set-urls.outputs.urls }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Read URLs
+        id: set-urls
+        run: |
+          urls=$(cat urls.txt | grep -v '^#' | awk NF | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "urls=$urls" >> $GITHUB_OUTPUT
+
+  download_and_split:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        url: ${{fromJson(needs.prepare.outputs.urls)}}
+      fail-fast: false
+    outputs:
+      segments: ${{ steps.set-segments.outputs.segments }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Download Tools & FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq aria2 wget curl ffmpeg
+
+      - name: Download Video
+        run: |
+          mkdir -p raw_input
+          URL="${{ matrix.url }}"
+          TOOL="${{ github.event.inputs.DOWNLOADER }}"
+          cd raw_input
+
+          if [ "$TOOL" = "wget" ]; then
+            wget -q --show-progress --progress=bar:force:noscroll --content-disposition --trust-server-names "$URL"
+          elif [ "$TOOL" = "curl" ]; then
+            curl -L -O -J "$URL"
+          elif [ "$TOOL" = "aria2" ]; then
+            aria2c --content-disposition=true --summary-interval=5 --console-log-level=notice "$URL"
+          elif [ "$TOOL" = "gdown" ]; then
+            python3 -m pip install gdown && gdown "$URL"
+          fi
+          cd ..
+
+      - name: Split Video into Segments
+        run: |
+          mkdir -p segments_output
+          SEG_DELIMITER="${{ github.event.inputs.DURATION }}"
+          
+          for file in raw_input/*; do
+            if [ -f "$file" ]; then
+              ext="${file##*.}"
+              filename=$(basename "$file" ."$ext")
+              
+              # Potong video tanpa re-encode
+              ffmpeg -i "$file" -f segment -segment_time "$SEG_DELIMITER" -c copy -reset_timestamps 1 "segments_output/${filename}_%03d.$ext"
+            fi
+          done
+
+      - name: Upload Segments as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-segments
+          path: segments_output/
+          retention-days: 1
+
+      - name: Generate Segments Matrix for Next Job
+        id: set-segments
+        run: |
+          # Ambil semua nama file hasil potongan dan jadikan format JSON Array
+          cd segments_output
+          segments_json=$(ls | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "segments=$segments_json" >> $GITHUB_OUTPUT
+          echo "Segments found: $segments_json"
+
+  convert:
+    needs: download_and_split
+    runs-on: ubuntu-latest
+    strategy:
+      # Job ini akan berjalan PARALEL untuk setiap segmen video yang ada
+      matrix:
+        segment_file: ${{fromJson(needs.download_and_split.outputs.segments)}}
+      fail-fast: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Environment & FFmpeg Static
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq curl p7zip-full
+          
+          # Install FFmpeg static untuk kebutuhan script convert_yt.sh kamu
+          curl -L "https://www.dropbox.com/scl/fi/bdioefcl1dce4zs7iqqr6/ffmpeg-release-amd64-static.tar.xz?rlkey=npbqixqrbarhmuymm4ps5em45&dl=1" -o "ffmpeg.tar.xz"
+          tar -xf ffmpeg.tar.xz
+          sudo mv ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/
+          sudo chmod +x /usr/local/bin/ffmpeg
+          
+          curl -L "https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v6.1/ffprobe-6.1-linux-64.zip" -o "./ffprobe-6.1-linux-64.zip"
+          7z x ./ffprobe-6.1-linux-64.zip
+          sudo chmod +x ./ffprobe
+          sudo mv ./ffprobe /usr/local/bin/ffprobe
+
+      - name: Setup Rclone
+        uses: AnimMouse/setup-rclone@v1
+        with:
+          rclone_config: ${{ secrets.RCLONE_CONF }}
+
+      - name: Download Specific Segment
+        uses: actions/download-artifact@v4
+        with:
+          name: video-segments
+          path: input/
+
+      - name: Keep Only This Matrix Segment
+        run: |
+          # Karena download-artifact mengunduh SEMUA segmen, 
+          # kita hapus file lain di folder input kecuali file yang menjadi bagian matrix ini.
+          TARGET_FILE="${{ matrix.segment_file }}"
+          mkdir -p temp_input
+          mv "input/$TARGET_FILE" temp_input/
+          rm -rf input
+          mv temp_input input
+          
+          echo "File yang akan diconvert di runner ini:"
+          ls -la input
+
+      - name: Run conversion
+        run: |
+          mkdir -p scripts 
+          rclone copy DBOX:scripts ./scripts
+          chmod +x ./scripts/convert_yt.sh
+          ./scripts/convert_yt.sh
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+          FPS: ${{ github.event.inputs.FPS }}
+          RESOLUTION: ${{ github.event.inputs.RESOLUTION }}
+          CRF: ${{ github.event.inputs.CRF }}
+          DEBLOCK: ${{ github.event.inputs.DEBLOCK }}
+          RD: ${{ github.event.inputs.RD }}
+          PSY_RD: ${{ github.event.inputs.PSY_RD }}
+          AQ_MODE: ${{ github.event.inputs.AQ_MODE }}
+          AQ_STRENGTH: ${{ github.event.inputs.AQ_STRENGTH }}
