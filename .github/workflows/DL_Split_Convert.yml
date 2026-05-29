@@ -62,6 +62,7 @@ jobs:
       - name: Read URLs
         id: set-urls
         run: |
+          # Membaca daftar link dari file urls.txt
           urls=$(cat urls.txt | grep -v '^#' | awk NF | jq -R -s -c 'split("\n") | map(select(length > 0))')
           echo "urls=$urls" >> $GITHUB_OUTPUT
 
@@ -93,7 +94,7 @@ jobs:
           if [ "$TOOL" = "wget" ]; then
             wget -q --show-progress --progress=bar:force:noscroll --content-disposition --trust-server-names "$URL"
           elif [ "$TOOL" = "curl" ]; then
-            curl -L -O -J "$URL"
+            curl -L -O -J -# "$URL"
           elif [ "$TOOL" = "aria2" ]; then
             aria2c --content-disposition=true --summary-interval=5 --console-log-level=notice "$URL"
           elif [ "$TOOL" = "gdown" ]; then
@@ -101,7 +102,7 @@ jobs:
           fi
           cd ..
 
-      - name: Split Video into Segments
+      - name: Split Video into Segments (Accurate Re-encode)
         run: |
           mkdir -p segments_output
           SEG_DELIMITER="${{ github.event.inputs.DURATION }}"
@@ -111,8 +112,16 @@ jobs:
               ext="${file##*.}"
               filename=$(basename "$file" ."$ext")
               
-              # Potong video tanpa re-encode
-              ffmpeg -i "$file" -f segment -segment_time "$SEG_DELIMITER" -c copy -reset_timestamps 1 "segments_output/${filename}_%03d.$ext"
+              echo "Memotong dengan akurasi frame: $filename.$ext"
+              
+              # Re-encode kilat (ultrafast) untuk memaksa keyframe baru di titik potong agar transisi mulus
+              ffmpeg -i "$file" \
+                -f segment \
+                -segment_time "$SEG_DELIMITER" \
+                -c:v libx264 -preset ultrafast -crf 18 \
+                -c:a aac -b:a 192k \
+                -reset_timestamps 1 \
+                "segments_output/${filename}_%03d.$ext"
             fi
           done
 
@@ -126,7 +135,6 @@ jobs:
       - name: Generate Segments Matrix for Next Job
         id: set-segments
         run: |
-          # Ambil semua nama file hasil potongan dan jadikan format JSON Array
           cd segments_output
           segments_json=$(ls | jq -R -s -c 'split("\n") | map(select(length > 0))')
           echo "segments=$segments_json" >> $GITHUB_OUTPUT
@@ -136,7 +144,7 @@ jobs:
     needs: download_and_split
     runs-on: ubuntu-latest
     strategy:
-      # Job ini akan berjalan PARALEL untuk setiap segmen video yang ada
+      # Membuka runner secara paralel sebanyak jumlah segmen video yang dihasilkan
       matrix:
         segment_file: ${{fromJson(needs.download_and_split.outputs.segments)}}
       fail-fast: false
@@ -150,7 +158,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq curl p7zip-full
           
-          # Install FFmpeg static untuk kebutuhan script convert_yt.sh kamu
+          # Setup FFmpeg static & FFprobe untuk menyokong script convert_yt.sh kamu
           curl -L "https://www.dropbox.com/scl/fi/bdioefcl1dce4zs7iqqr6/ffmpeg-release-amd64-static.tar.xz?rlkey=npbqixqrbarhmuymm4ps5em45&dl=1" -o "ffmpeg.tar.xz"
           tar -xf ffmpeg.tar.xz
           sudo mv ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/
@@ -174,15 +182,14 @@ jobs:
 
       - name: Keep Only This Matrix Segment
         run: |
-          # Karena download-artifact mengunduh SEMUA segmen, 
-          # kita hapus file lain di folder input kecuali file yang menjadi bagian matrix ini.
+          # Mengisolasi agar file manager di runner ini hanya memproses 1 target segmen miliknya sendiri
           TARGET_FILE="${{ matrix.segment_file }}"
           mkdir -p temp_input
           mv "input/$TARGET_FILE" temp_input/
           rm -rf input
           mv temp_input input
           
-          echo "File yang akan diconvert di runner ini:"
+          echo "File yang siap diproses pada runner ini:"
           ls -la input
 
       - name: Run conversion
