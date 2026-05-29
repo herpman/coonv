@@ -1,4 +1,4 @@
-Name: Download and Convert Direct Links
+name: Download and Convert Direct Links
 
 on:
   workflow_dispatch:
