@@ -1,0 +1,153 @@
+Name: Download and Convert Direct Links
+
+on:
+  workflow_dispatch:
+    inputs:
+      DOWNLOADER:
+        description: 'Pilih Tool Download (wget, curl, aria2, gdown)'
+        required: true
+        default: 'wget'
+        type: choice
+        options:
+          - wget
+          - curl
+          - aria2
+          - gdown
+      FPS:
+        description: 'FPS (e.g., source, 24)'
+        required: false
+        default: 'source'
+      RESOLUTION:
+        description: 'Resolution (e.g., source, 1280:-2)'
+        required: false
+        default: 'source'
+      CRF:
+        description: 'Constant Rate Factor'
+        required: false
+        default: '29.5'
+      DEBLOCK:
+        description: 'Deblock settings (e.g., 0:0)'
+        required: false
+        default: '0:0'
+      RD:
+        description: 'RD value'
+        required: false
+        default: '6'
+      PSY_RD:
+        description: 'Psy-RD value'
+        required: false
+        default: '1.00'
+      AQ_MODE:
+        description: 'AQ Mode (e.g., 2)'
+        required: false
+        default: '2'
+      AQ_STRENGTH:
+        description: 'AQ Strength'
+        required: false
+        default: '1.00'
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Disable man-db auto-update
+        run: |
+          echo 'set man-db/auto-update false' | sudo debconf-communicate
+          sudo dpkg-reconfigure man-db
+
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Read URLs and set matrix
+        id: set-matrix
+        run: |
+          # Mengubah target file menjadi urls.txt
+          urls=$(cat urls.txt | grep -v '^#' | awk NF | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "matrix=$urls"
+          echo "matrix=$urls" >> $GITHUB_OUTPUT
+
+  convert:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        url: ${{fromJson(needs.prepare.outputs.matrix)}}
+      fail-fast: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Environment & Tools
+        run: |
+          sudo apt-get purge -y man-db
+          sudo apt-get update
+          # Install downloader tools (aria2, wget, curl) dan python untuk gdown
+          sudo apt-get install -y jq python3 python3-pip aria2 wget curl p7zip-full
+          python -m pip install --upgrade pip
+          python -m pip install gdown
+
+          # Tetap mempertahankan setup FFmpeg jika script convert_yt.sh membutuhkannya
+          curl -L "https://www.dropbox.com/scl/fi/bdioefcl1dce4zs7iqqr6/ffmpeg-release-amd64-static.tar.xz?rlkey=npbqixqrbarhmuymm4ps5em45&dl=1" -o "ffmpeg.tar.xz"
+          tar -xf ffmpeg.tar.xz
+          sudo mv ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/
+          sudo chmod +x /usr/local/bin/ffmpeg
+          
+          curl -L "https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v6.1/ffprobe-6.1-linux-64.zip" -o "./ffprobe-6.1-linux-64.zip"
+          7z x ./ffprobe-6.1-linux-64.zip
+          sudo chmod +x ./ffprobe
+          sudo mv ./ffprobe /usr/local/bin/ffprobe
+
+      - name: Setup Rclone
+        uses: AnimMouse/setup-rclone@v1
+        with:
+          rclone_config: ${{ secrets.RCLONE_CONF }}
+
+      - name: Download Direct Link (Auto Name)
+        run: |
+          mkdir -p input
+          URL="${{ matrix.url }}"
+          TOOL="${{ github.event.inputs.DOWNLOADER }}"
+          
+          echo "Mengunduh menggunakan: $TOOL"
+          cd input
+
+          if [ "$TOOL" = "wget" ]; then
+            # content-disposition mendeteksi nama asli dari server, trust-server-names menjaga keamanannya
+            wget --content-disposition --trust-server-names "$URL"
+          
+          elif [ "$TOOL" = "curl" ]; then
+            # -O mengambil nama dari URL, -J menggunakan header Content-Disposition dari server jika ada
+            curl -L -O -J "$URL"
+          
+          elif [ "$TOOL" = "aria2" ]; then
+            # --content-disposition mencari nama file asli di header HTTP
+            aria2c --content-disposition=true "$URL"
+          
+          elif [ "$TOOL" = "gdown" ]; then
+            # gdown secara default otomatis mendeteksi nama file di Google Drive
+            gdown "$URL"
+          fi
+          
+          cd ..
+          echo "Isi folder input saat ini:"
+          ls -la input
+
+      - name: Run conversion
+        run: |
+          mkdir -p scripts 
+          rclone copy DBOX:scripts ./scripts
+          chmod +x ./scripts/convert_yt.sh
+          ./scripts/convert_yt.sh
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+          FPS: ${{ github.event.inputs.FPS }}
+          RESOLUTION: ${{ github.event.inputs.RESOLUTION }}
+          CRF: ${{ github.event.inputs.CRF }}
+          DEBLOCK: ${{ github.event.inputs.DEBLOCK }}
+          RD: ${{ github.event.inputs.RD }}
+          PSY_RD: ${{ github.event.inputs.PSY_RD }}
+          AQ_MODE: ${{ github.event.inputs.AQ_MODE }}
+          AQ_STRENGTH: ${{ github.event.inputs.AQ_STRENGTH }}
