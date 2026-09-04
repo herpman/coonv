@@ -72,6 +72,7 @@ jobs:
       - name: Install python3 & yt-dlp
         run: |
           sudo apt-get purge -y man-db
+          sudo apt-get install -y nodejs npm jq python3 python3-pip p7zip-full
           curl -L "https://www.dropbox.com/scl/fi/bdioefcl1dce4zs7iqqr6/ffmpeg-release-amd64-static.tar.xz?rlkey=npbqixqrbarhmuymm4ps5em45&dl=1" -o "ffmpeg.tar.xz"
           tar -xf ffmpeg.tar.xz
           sudo mv ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/
@@ -93,7 +94,7 @@ jobs:
       - name: Download YouTube video
         run: |
           mkdir -p input sub
-          yt-dlp --js-runtimes node --downloader-args javascript='-e node' --fragment-retries 5 --concurrent-fragments 1 --cookies youtube_cookies.txt --no-playlist -t sleep --restrict-filenames --hls-use-mpegts --no-abort-on-error -o "%(title).80s_%(id)s.%(ext)s" -S res,vcodec:h264,acodec:m4a -P "input" "${{ matrix.url }}" || true
+          yt-dlp --js-runtimes node --downloader-args javascript='-e node' --extractor-args "youtube:player_client=android" --fragment-retries 5 --concurrent-fragments 1 --cookies youtube_cookies.txt --no-playlist -t sleep --restrict-filenames --hls-use-mpegts --no-abort-on-error -o "%(title).80s_%(id)s.%(ext)s" -S res,vcodec:h264,acodec:m4a -P "input" "${{ matrix.url }}" || true
           yt-dlp --js-runtimes node --downloader-args javascript='-e node' --fragment-retries 5 --concurrent-fragments 5 --cookies youtube_cookies.txt --no-playlist -t sleep --skip-download --restrict-filenames -o "%(title).80s_%(id)s.%(ext)s" --write-sub --write-auto-sub --sub-lang en --convert-subs srt -P "sub" "${{ matrix.url }}" || true
           yt-dlp --js-runtimes node --downloader-args javascript='-e node' --fragment-retries 5 --concurrent-fragments 5 --cookies youtube_cookies.txt --no-playlist -t sleep --skip-download --restrict-filenames -o "%(title).80s_%(id)s.%(ext)s" --write-thumbnail --write-description --convert-thumbnails jpg -P "desc" "${{ matrix.url }}"
           find desc -type f -name "*.description" -exec bash -c 'mv "$0" "${0%.description}.txt"' {} \;
