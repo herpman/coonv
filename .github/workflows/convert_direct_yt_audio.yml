@@ -74,23 +74,30 @@ jobs:
           DIRECT_URL="${{ matrix.url }}"
           TOOL="${{ github.event.inputs.DOWNLOADER }}"
           
+          echo "Target URL: '$DIRECT_URL'"
+          
           # Cari link YouTube pasangan berdasarkan nomor baris matriks dari urls.txt
           ROW_INDEX=$(grep -n -F "$DIRECT_URL" urls.txt | head -n 1 | cut -d: -f1)
           YT_URL=$(sed -n "${ROW_INDEX}p" yt_urls.txt)
           
           echo "Index baris: $ROW_INDEX"
+          echo "Link YT Pasangan: '$YT_URL'"
           echo "Mengunduh Audio Utama via Direct Link menggunakan: $TOOL"
+          
           cd input
           if [ "$TOOL" = "wget" ]; then
-            wget --content-disposition --trust-server-names "$DIRECT_URL"
+            wget --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)" --content-disposition --trust-server-names "$DIRECT_URL"
           elif [ "$TOOL" = "curl" ]; then
-            curl -L -O -J "$DIRECT_URL"
+            curl -L -O -J -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$DIRECT_URL"
           elif [ "$TOOL" = "aria2" ]; then
-            aria2c --content-disposition=true "$DIRECT_URL"
+            aria2c --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)" --content-disposition=true "$DIRECT_URL"
           elif [ "$TOOL" = "gdown" ]; then
             gdown "$DIRECT_URL"
           fi
+          
           cd ..
+          echo "Isi folder input setelah download:"
+          ls -la input/
 
           if [ -n "$YT_URL" ]; then
             echo "Mengambil aset pendukung dari link YouTube: $YT_URL"
@@ -126,6 +133,7 @@ jobs:
           rclone copy DBOX:scripts ./scripts
           chmod +x ./scripts/yt_audio.sh
           ./scripts/yt_audio.sh
+
         env:
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
           AUDIO_BITRATE: ${{ github.event.inputs.AUDIO_BITRATE }}
