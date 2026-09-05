@@ -96,6 +96,9 @@ jobs:
             echo "Mengambil aset pendukung dari link YouTube: $YT_URL"
             yt-dlp --skip-download \
               --js-runtimes node \
+              --cookies youtube_cookies.txt \
+              --downloader-args javascript='-e node' \
+              --no-playlist -t sleep \
               --write-thumbnail --convert-thumbnails jpg \
               --write-description \
               --no-abort-on-error \
@@ -104,6 +107,9 @@ jobs:
 
             yt-dlp --skip-download \
               --js-runtimes node \
+              --cookies youtube_cookies.txt \
+              --downloader-args javascript='-e node' \
+              --no-playlist -t sleep \
               --write-sub --write-auto-sub --sub-lang en --convert-subs srt \
               -o "sub/%(title).80s_%(id)s.%(ext)s" \
               "$YT_URL" || true
