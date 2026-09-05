@@ -98,9 +98,12 @@ jobs:
             gdown "$DIRECT_URL"
           fi
           
+          echo "Isi folder input saat ini (di dalam direktori input):"
+          ls -la .
           cd ..
-          echo "Isi folder input saat ini:"
-          ls -la input
+          
+          echo "Pencarian file di seluruh workspace:"
+          find . -maxdepth 3 -not -path '*/.*'
 
           if [ -n "$YT_URL" ]; then
             echo "Mengambil aset pendukung dari link YouTube: $YT_URL"
