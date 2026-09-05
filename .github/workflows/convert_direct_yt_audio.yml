@@ -95,6 +95,7 @@ jobs:
           if [ -n "$YT_URL" ]; then
             echo "Mengambil aset pendukung dari link YouTube: $YT_URL"
             yt-dlp --skip-download \
+              --js-runtimes node \
               --write-thumbnail --convert-thumbnails jpg \
               --write-description \
               --no-abort-on-error \
@@ -102,6 +103,7 @@ jobs:
               "$YT_URL" || true
 
             yt-dlp --skip-download \
+              --js-runtimes node \
               --write-sub --write-auto-sub --sub-lang en --convert-subs srt \
               -o "sub/%(title).80s_%(id)s.%(ext)s" \
               "$YT_URL" || true
