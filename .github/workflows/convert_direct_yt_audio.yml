@@ -6,7 +6,7 @@ on:
       DOWNLOADER:
         description: 'Pilih Tool Download (wget, curl, aria2, gdown)'
         required: true
-        default: 'wget'
+        default: 'aria2'
         type: choice
         options:
           - wget
@@ -24,13 +24,19 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
+      - name: Disable man-db auto-update
+        run: |
+          echo 'set man-db/auto-update false' | sudo debconf-communicate
+          sudo dpkg-reconfigure man-db
+
       - name: Checkout
         uses: actions/checkout@v5
+
       - name: Read URLs and set matrix
         id: set-matrix
         run: |
-          # Membaca urls.txt untuk file unduhan utama
           urls=$(cat urls.txt | grep -v '^#' | awk NF | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "matrix=$urls"
           echo "matrix=$urls" >> $GITHUB_OUTPUT
 
   convert:
@@ -45,9 +51,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Install Dependencies
+      - name: Install Environment & Tools
         run: |
-          # Install FFmpeg Static & FFprobe
           sudo apt-get purge -y man-db
           sudo apt-get update
           sudo apt-get install -y jq python3 python3-pip aria2 wget curl p7zip-full
@@ -58,6 +63,7 @@ jobs:
           tar -xf ffmpeg.tar.xz
           sudo mv ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/
           sudo chmod +x /usr/local/bin/ffmpeg
+          
           curl -L "https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v6.1/ffprobe-6.1-linux-64.zip" -o "./ffprobe-6.1-linux-64.zip"
           7z x ./ffprobe-6.1-linux-64.zip || (sudo apt-get update && sudo apt-get install -y p7zip-full && 7z x ./ffprobe-6.1-linux-64.zip)
           sudo chmod +x ./ffprobe
@@ -74,9 +80,6 @@ jobs:
           DIRECT_URL="${{ matrix.url }}"
           TOOL="${{ github.event.inputs.DOWNLOADER }}"
           
-          echo "Target URL: '$DIRECT_URL'"
-          
-          # Cari link YouTube pasangan berdasarkan nomor baris matriks dari urls.txt
           ROW_INDEX=$(grep -n -F "$DIRECT_URL" urls.txt | head -n 1 | cut -d: -f1)
           YT_URL=$(sed -n "${ROW_INDEX}p" yt_urls.txt)
           
@@ -86,18 +89,18 @@ jobs:
           
           cd input
           if [ "$TOOL" = "wget" ]; then
-            wget --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)" --content-disposition --trust-server-names "$DIRECT_URL"
+            wget --content-disposition --trust-server-names "$DIRECT_URL"
           elif [ "$TOOL" = "curl" ]; then
-            curl -L -O -J -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$DIRECT_URL"
+            curl -L -O -J "$DIRECT_URL"
           elif [ "$TOOL" = "aria2" ]; then
-            aria2c --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)" --content-disposition=true "$DIRECT_URL"
+            aria2c --content-disposition=true --max-tries=5 --retry-wait=3 "$DIRECT_URL"
           elif [ "$TOOL" = "gdown" ]; then
             gdown "$DIRECT_URL"
           fi
           
           cd ..
-          echo "Isi folder input setelah download:"
-          ls -la input/
+          echo "Isi folder input saat ini:"
+          ls -la input
 
           if [ -n "$YT_URL" ]; then
             echo "Mengambil aset pendukung dari link YouTube: $YT_URL"
@@ -106,7 +109,7 @@ jobs:
               --js-runtimes node \
               --cookies youtube_cookies.txt \
               --downloader-args javascript='-e node' \
-              --no-playlist -t sleep \
+              --no-playlist \
               --write-thumbnail --convert-thumbnails jpg \
               --write-description \
               --no-abort-on-error \
@@ -118,7 +121,7 @@ jobs:
               --js-runtimes node \
               --cookies youtube_cookies.txt \
               --downloader-args javascript='-e node' \
-              --no-playlist -t sleep \
+              --no-playlist \
               --write-sub --write-auto-sub --sub-lang en --convert-subs srt \
               -o "sub/%(title).80s_%(id)s.%(ext)s" \
               "$YT_URL" || true
@@ -135,7 +138,6 @@ jobs:
           rclone copy DBOX:scripts ./scripts
           chmod +x ./scripts/yt_audio.sh
           ./scripts/yt_audio.sh
-
         env:
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
           AUDIO_BITRATE: ${{ github.event.inputs.AUDIO_BITRATE }}
