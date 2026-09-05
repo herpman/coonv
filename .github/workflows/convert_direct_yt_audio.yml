@@ -29,8 +29,8 @@ jobs:
       - name: Read URLs and set matrix
         id: set-matrix
         run: |
-          # Membaca direct_urls.txt untuk file unduhan utama
-          urls=$(cat direct_urls.txt | grep -v '^#' | awk NF | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          # Membaca urls.txt untuk file unduhan utama
+          urls=$(cat urls.txt | grep -v '^#' | awk NF | jq -R -s -c 'split("\n") | map(select(length > 0))')
           echo "matrix=$urls" >> $GITHUB_OUTPUT
 
   convert:
