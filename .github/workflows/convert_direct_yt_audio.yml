@@ -101,8 +101,9 @@ jobs:
 
           if [ -n "$YT_URL" ]; then
             echo "Mengambil aset pendukung dari link YouTube: $YT_URL"
-            yt-dlp --js-runtimes node \
-              --skip-download \
+            yt-dlp --skip-download \
+              --remote-components ejs:github \
+              --js-runtimes node \
               --cookies youtube_cookies.txt \
               --downloader-args javascript='-e node' \
               --no-playlist -t sleep \
@@ -112,8 +113,9 @@ jobs:
               -o "desc/%(title).80s_%(id)s.%(ext)s" \
               "$YT_URL" || true
 
-            yt-dlp --js-runtimes node \
-              --skip-download \
+            yt-dlp --skip-download \
+              --remote-components ejs:github \
+              --js-runtimes node \
               --cookies youtube_cookies.txt \
               --downloader-args javascript='-e node' \
               --no-playlist -t sleep \
