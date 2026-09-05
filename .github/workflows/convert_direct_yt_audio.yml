@@ -1,0 +1,123 @@
+name: Direct YT Audio Download and Convert
+
+on:
+  workflow_dispatch:
+    inputs:
+      DOWNLOADER:
+        description: 'Pilih Tool Download (wget, curl, aria2, gdown)'
+        required: true
+        default: 'wget'
+        type: choice
+        options:
+          - wget
+          - curl
+          - aria2
+          - gdown
+      AUDIO_BITRATE:
+        description: 'Bitrate (e.g., 25k, 32k)'
+        required: false
+        default: '25k'
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Read URLs and set matrix
+        id: set-matrix
+        run: |
+          # Membaca direct_urls.txt untuk file unduhan utama
+          urls=$(cat direct_urls.txt | grep -v '^#' | awk NF | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "matrix=$urls" >> $GITHUB_OUTPUT
+
+  convert:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        url: ${{fromJson(needs.prepare.outputs.matrix)}}
+      fail-fast: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Dependencies
+        run: |
+          # Install FFmpeg Static & FFprobe
+          sudo apt-get purge -y man-db
+          sudo apt-get update
+          sudo apt-get install -y jq python3 python3-pip aria2 wget curl p7zip-full
+          python -m pip install --upgrade pip
+          python -m pip install yt-dlp
+
+          curl -L "https://www.dropbox.com/scl/fi/bdioefcl1dce4zs7iqqr6/ffmpeg-release-amd64-static.tar.xz?rlkey=npbqixqrbarhmuymm4ps5em45&dl=1" -o "ffmpeg.tar.xz"
+          tar -xf ffmpeg.tar.xz
+          sudo mv ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/
+          sudo chmod +x /usr/local/bin/ffmpeg
+          curl -L "https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v6.1/ffprobe-6.1-linux-64.zip" -o "./ffprobe-6.1-linux-64.zip"
+          7z x ./ffprobe-6.1-linux-64.zip || (sudo apt-get update && sudo apt-get install -y p7zip-full && 7z x ./ffprobe-6.1-linux-64.zip)
+          sudo chmod +x ./ffprobe
+          sudo mv ./ffprobe /usr/local/bin/ffprobe
+
+      - name: Setup Rclone
+        uses: AnimMouse/setup-rclone@v1
+        with:
+          rclone_config: ${{ secrets.RCLONE_CONF }}
+
+      - name: Download Audio & Assets
+        run: |
+          mkdir -p input desc sub
+          DIRECT_URL="${{ matrix.url }}"
+          TOOL="${{ github.event.inputs.DOWNLOADER }}"
+          
+          # Cari link YouTube pasangan berdasarkan nomor baris matriks dari urls.txt
+          ROW_INDEX=$(grep -n -F "$DIRECT_URL" urls.txt | head -n 1 | cut -d: -f1)
+          YT_URL=$(sed -n "${ROW_INDEX}p" yt_urls.txt)
+          
+          echo "Index baris: $ROW_INDEX"
+          echo "Mengunduh Audio Utama via Direct Link menggunakan: $TOOL"
+          cd input
+          if [ "$TOOL" = "wget" ]; then
+            wget --content-disposition --trust-server-names "$DIRECT_URL"
+          elif [ "$TOOL" = "curl" ]; then
+            curl -L -O -J "$DIRECT_URL"
+          elif [ "$TOOL" = "aria2" ]; then
+            aria2c --content-disposition=true "$DIRECT_URL"
+          elif [ "$TOOL" = "gdown" ]; then
+            gdown "$DIRECT_URL"
+          fi
+          cd ..
+
+          if [ -n "$YT_URL" ]; then
+            echo "Mengambil aset pendukung dari link YouTube: $YT_URL"
+            yt-dlp --skip-download \
+              --write-thumbnail --convert-thumbnails jpg \
+              --write-description \
+              --no-abort-on-error \
+              -o "desc/%(title).80s_%(id)s.%(ext)s" \
+              "$YT_URL" || true
+
+            yt-dlp --skip-download \
+              --write-sub --write-auto-sub --sub-lang en --convert-subs srt \
+              -o "sub/%(title).80s_%(id)s.%(ext)s" \
+              "$YT_URL" || true
+          else
+            echo "Warning: Link YouTube pasangan tidak ditemukan di yt_urls.txt untuk baris ini."
+          fi
+
+          find desc -type f -name "*.description" -exec bash -c 'mv "$0" "${0%.description}.txt"' {} \;
+          rclone copy ./sub HerpDrive:Here/YTout/Audio/sub
+
+      - name: Run conversion
+        run: |
+          mkdir -p scripts 
+          rclone copy DBOX:scripts ./scripts
+          chmod +x ./scripts/yt_audio.sh
+          ./scripts/yt_audio.sh
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+          AUDIO_BITRATE: ${{ github.event.inputs.AUDIO_BITRATE }}
