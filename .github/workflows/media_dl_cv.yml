@@ -130,8 +130,8 @@ jobs:
         run: |
           mkdir -p scripts 
           rclone copy DBOX:scripts ./scripts
-          chmod +x ./scripts/convert_yt.sh
-          ./scripts/convert_yt.sh
+          chmod +x ./scripts/convert_media.sh
+          ./scripts/convert_media.sh
         env:
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
           FPS: ${{ github.event.inputs.FPS }}
