@@ -1,0 +1,141 @@
+name: Download and Convert Custom Folders
+
+on:
+  workflow_dispatch:
+    inputs:
+      FPS:
+        description: 'FPS (e.g., source, 24)'
+        required: false
+        default: 'source'
+      RESOLUTION:
+        description: 'Resolution (e.g., source, 1280:-2)'
+        required: false
+        default: 'source'
+      CRF:
+        description: 'Constant Rate Factor'
+        required: false
+        default: '29.5'
+      DEBLOCK:
+        description: 'Deblock settings (e.g., 0:0)'
+        required: false
+        default: '0:0'
+      RD:
+        description: 'RD value'
+        required: false
+        default: '6'
+      PSY_RD:
+        description: 'Psy-RD value'
+        required: false
+        default: '1.00'
+      AQ_MODE:
+        description: 'AQ Mode (e.g., 2)'
+        required: false
+        default: '2'
+      AQ_STRENGTH:
+        description: 'AQ Strength'
+        required: false
+        default: '1.00'
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Disable man-db auto-update
+        run: |
+          echo 'set man-db/auto-update false' | sudo debconf-communicate
+          sudo dpkg-reconfigure man-db
+
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Read URLs and set matrix
+        id: set-matrix
+        run: |
+          urls=$(cat yt_urls.txt | grep -v '^#' | awk NF | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "matrix=$urls"
+          echo "matrix=$urls" >> $GITHUB_OUTPUT
+
+  convert:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        url: ${{fromJson(needs.prepare.outputs.matrix)}}
+      fail-fast: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install python3 & yt-dlp
+        run: |
+          sudo apt-get purge -y man-db
+          sudo apt-get install -y nodejs npm jq python3 python3-pip p7zip-full
+          curl -L "https://www.dropbox.com/scl/fi/bdioefcl1dce4zs7iqqr6/ffmpeg-release-amd64-static.tar.xz?rlkey=npbqixqrbarhmuymm4ps5em45&dl=1" -o "ffmpeg.tar.xz"
+          tar -xf ffmpeg.tar.xz
+          sudo mv ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/
+          sudo chmod +x /usr/local/bin/ffmpeg
+          curl -L "https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v6.1/ffprobe-6.1-linux-64.zip" -o "./ffprobe-6.1-linux-64.zip"
+          7z x ./ffprobe-6.1-linux-64.zip || (sudo apt-get update && sudo apt-get install -y p7zip-full && 7z x ./ffprobe-6.1-linux-64.zip)
+          sudo chmod +x ./ffprobe
+          sudo mv ./ffprobe /usr/local/bin/ffprobe
+          sudo apt-get install jq python3 python3-pip
+          python -m pip install --upgrade pip
+          python -m pip install -U "yt-dlp[default,curl-cffi]" yt-dlp-ejs --pre
+          yt-dlp --update-to nightly
+          yt-dlp --version
+
+      - name: Setup Rclone
+        uses: AnimMouse/setup-rclone@v1
+        with:
+          rclone_config: ${{ secrets.RCLONE_CONF }}
+
+      - name: Download to Custom Folders (Unique Safe Naming)
+        run: |
+          # --- KAMU BISA UBAH NAMA FOLDER DI SINI SESUKA HATI ---
+          TARGET_VIDEO_DIR="my_custom_input"
+          TARGET_SUB_DIR="my_custom_sub"
+          TARGET_DESC_DIR="my_custom_desc"
+          
+          WORK_ID="job_${{ strategy.job-index }}_$RANDOM"
+          mkdir -p "$TARGET_VIDEO_DIR/$WORK_ID" "$TARGET_SUB_DIR/$WORK_ID" "$TARGET_DESC_DIR/$WORK_ID"
+          URL="${{ matrix.url }}"
+          
+          # Unduh video ke folder kustom aman dari ketimpa
+          yt-dlp --js-runtimes node --extractor-args "youtube:player_client=web_embedded" --fragment-retries 5 --concurrent-fragments 1 --cookies youtube_cookies.txt --no-playlist --restrict-filenames --hls-use-mpegts --no-abort-on-error -o "%(id)s_%(title).40s_%(autonumber)s.%(ext)s" -f "bv*[vcodec^=avc1]+ba/b" -P "$TARGET_VIDEO_DIR/$WORK_ID" "$URL" || true
+          
+          # Unduh Subtitle ke folder kustom
+          yt-dlp --js-runtimes node --skip-download --restrict-filenames -o "%(id)s_%(title).40s_%(autonumber)s.%(ext)s" --write-sub --write-auto-sub --sub-lang en --convert-subs srt -P "$TARGET_SUB_DIR/$WORK_ID" "$URL" || true
+          
+          # Unduh Thumbnail & Deskripsi ke folder kustom
+          yt-dlp --js-runtimes node --skip-download --restrict-filenames -o "%(id)s_%(title).40s_%(autonumber)s.%(ext)s" --write-thumbnail --write-description --convert-thumbnails jpg -P "$TARGET_DESC_DIR/$WORK_ID" "$URL"
+          
+          find "$TARGET_DESC_DIR/$WORK_ID" -type f -name "*.description" -exec bash -c 'mv "$0" "${0%.description}.txt"' {} \;
+          
+          # Gabungkan file dari subfolder isolasi ke folder utama kustom
+          mv $TARGET_VIDEO_DIR/$WORK_ID/* $TARGET_VIDEO_DIR/ 2>/dev/null || true
+          mv $TARGET_SUB_DIR/$WORK_ID/* $TARGET_SUB_DIR/ 2>/dev/null || true
+          mv $TARGET_DESC_DIR/$WORK_ID/* $TARGET_DESC_DIR/ 2>/dev/null || true
+          
+          # Sinkronisasi ke Rclone (ubah tujuan rclone jika foldernya beda)
+          rclone copy ./$TARGET_SUB_DIR HerpDrive:Here/YTout/sub || true
+          rclone copy ./$TARGET_DESC_DIR HerpDrive:Here/YTout/desc || true
+
+      - name: Run conversion
+        run: |
+          mkdir -p scripts 
+          rclone copy DBOX:scripts ./scripts
+          chmod +x ./scripts/convert_yt.sh
+          ./scripts/convert_yt.sh
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+          FPS: ${{ github.event.inputs.FPS }}
+          RESOLUTION: ${{ github.event.inputs.RESOLUTION }}
+          CRF: ${{ github.event.inputs.CRF }}
+          DEBLOCK: ${{ github.event.inputs.DEBLOCK }}
+          RD: ${{ github.event.inputs.RD }}
+          PSY_RD: ${{ github.event.inputs.PSY_RD }}
+          AQ_MODE: ${{ github.event.inputs.AQ_MODE }}
+          AQ_STRENGTH: ${{ github.event.inputs.AQ_STRENGTH }}
