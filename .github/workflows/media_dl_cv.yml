@@ -1,4 +1,4 @@
-name: Download and Convert YouTube Videos
+name: Download and Convert Media
 
 on:
   workflow_dispatch:
@@ -92,23 +92,33 @@ jobs:
         with:
           rclone_config: ${{ secrets.RCLONE_CONF }}
 
-      - name: Download YouTube video (Safe Parallel Isolation)
+      - name: Download video with Guaranteed Unique Filename
         run: |
-          # Buat folder sementara khusus untuk matrix job ini agar tidak saling tabrak/ketimpa
           WORK_ID="job_${{ strategy.job-index }}_$RANDOM"
           mkdir -p "input/$WORK_ID" "sub/$WORK_ID" "desc/$WORK_ID"
           URL="${{ matrix.url }}"
           
-          # Download ke dalam folder isolasi masing-masing
-          yt-dlp --js-runtimes node --extractor-args "youtube:player_client=web_embedded" --fragment-retries 5 --concurrent-fragments 1 --cookies youtube_cookies.txt --no-playlist -t sleep --restrict-filenames --hls-use-mpegts --no-abort-on-error -o "%(id)s_%(title).80s.%(ext)s" -f "bv*[vcodec^=avc1]+ba/b" -P "input/$WORK_ID" "$URL" || true
+          # Kita gunakan %(title)s ditambah ID yt-dlp (jika ada) dan %(epoch)s (waktu detik saat download) 
+          # supaya dijamin tidak akan pernah ada nama file kembar/tertukar di Google Drive.
+          FILENAME_TEMPLATE="%(title).50s_id-%(id)s_time-%(epoch)s.%(ext)s"
           
-          yt-dlp --js-runtimes node --fragment-retries 5 --concurrent-fragments 5 --cookies youtube_cookies.txt --no-playlist -t sleep --skip-download --restrict-filenames -o "%(id)s_%(title).80s.%(ext)s" --write-sub --write-auto-sub --sub-lang en --convert-subs srt -P "sub/$WORK_ID" "$URL" || true
+          yt-dlp --js-runtimes node \
+                 --extractor-args "youtube:player_client=web_embedded" \
+                 --fragment-retries 5 --concurrent-fragments 1 \
+                 --cookies youtube_cookies.txt \
+                 --no-playlist -t sleep --restrict-filenames \
+                 --hls-use-mpegts --no-abort-on-error \
+                 -o "$FILENAME_TEMPLATE" \
+                 -f "bv*[vcodec^=avc1]+ba/b / best" \
+                 -P "input/$WORK_ID" "$URL" || true
           
-          yt-dlp --js-runtimes node --fragment-retries 5 --concurrent-fragments 5 --cookies youtube_cookies.txt --no-playlist -t sleep --skip-download --restrict-filenames -o "%(id)s_%(title).80s.%(ext)s" --write-thumbnail --write-description --convert-thumbnails jpg -P "desc/$WORK_ID" "$URL" || true
+          yt-dlp --js-runtimes node --fragment-retries 5 --concurrent-fragments 5 --cookies youtube_cookies.txt --no-playlist -t sleep --skip-download --restrict-filenames -o "$FILENAME_TEMPLATE" --write-sub --write-auto-sub --sub-lang en --convert-subs srt -P "sub/$WORK_ID" "$URL" || true
+          
+          yt-dlp --js-runtimes node --fragment-retries 5 --concurrent-fragments 5 --cookies youtube_cookies.txt --no-playlist -t sleep --skip-download --restrict-filenames -o "$FILENAME_TEMPLATE" --write-thumbnail --write-description --convert-thumbnails jpg -P "desc/$WORK_ID" "$URL" || true
           
           find "desc/$WORK_ID" -type f -name "*.description" -exec bash -c 'mv "$0" "${0%.description}.txt"' {} \;
           
-          # Pindahkan hasil download bersih ke folder utama input/ sub/ desc/ untuk diproses script conversion
+          # Pindahkan file dari folder isolasi sementara ke folder utama
           mv input/$WORK_ID/* input/ 2>/dev/null || true
           mv sub/$WORK_ID/* sub/ 2>/dev/null || true
           mv desc/$WORK_ID/* desc/ 2>/dev/null || true
