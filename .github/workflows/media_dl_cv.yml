@@ -1,4 +1,4 @@
-name: Download and Convert Custom Folders
+name: Download and Convert YouTube Videos
 
 on:
   workflow_dispatch:
@@ -92,36 +92,29 @@ jobs:
         with:
           rclone_config: ${{ secrets.RCLONE_CONF }}
 
-      - name: Download to Custom Folders (Unique Safe Naming)
+      - name: Download YouTube video (Safe Parallel Isolation)
         run: |
-          # --- KAMU BISA UBAH NAMA FOLDER DI SINI SESUKA HATI ---
-          TARGET_VIDEO_DIR="my_custom_input"
-          TARGET_SUB_DIR="my_custom_sub"
-          TARGET_DESC_DIR="my_custom_desc"
-          
+          # Buat folder sementara khusus untuk matrix job ini agar tidak saling tabrak/ketimpa
           WORK_ID="job_${{ strategy.job-index }}_$RANDOM"
-          mkdir -p "$TARGET_VIDEO_DIR/$WORK_ID" "$TARGET_SUB_DIR/$WORK_ID" "$TARGET_DESC_DIR/$WORK_ID"
+          mkdir -p "input/$WORK_ID" "sub/$WORK_ID" "desc/$WORK_ID"
           URL="${{ matrix.url }}"
           
-          # Unduh video ke folder kustom aman dari ketimpa
-          yt-dlp --js-runtimes node --extractor-args "youtube:player_client=web_embedded" --fragment-retries 5 --concurrent-fragments 1 --cookies youtube_cookies.txt --no-playlist --restrict-filenames --hls-use-mpegts --no-abort-on-error -o "%(id)s_%(title).40s_%(autonumber)s.%(ext)s" -f "bv*[vcodec^=avc1]+ba/b" -P "$TARGET_VIDEO_DIR/$WORK_ID" "$URL" || true
+          # Download ke dalam folder isolasi masing-masing
+          yt-dlp --js-runtimes node --extractor-args "youtube:player_client=web_embedded" --fragment-retries 5 --concurrent-fragments 1 --cookies youtube_cookies.txt --no-playlist -t sleep --restrict-filenames --hls-use-mpegts --no-abort-on-error -o "%(id)s_%(title).80s.%(ext)s" -f "bv*[vcodec^=avc1]+ba/b" -P "input/$WORK_ID" "$URL" || true
           
-          # Unduh Subtitle ke folder kustom
-          yt-dlp --js-runtimes node --skip-download --restrict-filenames -o "%(id)s_%(title).40s_%(autonumber)s.%(ext)s" --write-sub --write-auto-sub --sub-lang en --convert-subs srt -P "$TARGET_SUB_DIR/$WORK_ID" "$URL" || true
+          yt-dlp --js-runtimes node --fragment-retries 5 --concurrent-fragments 5 --cookies youtube_cookies.txt --no-playlist -t sleep --skip-download --restrict-filenames -o "%(id)s_%(title).80s.%(ext)s" --write-sub --write-auto-sub --sub-lang en --convert-subs srt -P "sub/$WORK_ID" "$URL" || true
           
-          # Unduh Thumbnail & Deskripsi ke folder kustom
-          yt-dlp --js-runtimes node --skip-download --restrict-filenames -o "%(id)s_%(title).40s_%(autonumber)s.%(ext)s" --write-thumbnail --write-description --convert-thumbnails jpg -P "$TARGET_DESC_DIR/$WORK_ID" "$URL"
+          yt-dlp --js-runtimes node --fragment-retries 5 --concurrent-fragments 5 --cookies youtube_cookies.txt --no-playlist -t sleep --skip-download --restrict-filenames -o "%(id)s_%(title).80s.%(ext)s" --write-thumbnail --write-description --convert-thumbnails jpg -P "desc/$WORK_ID" "$URL" || true
           
-          find "$TARGET_DESC_DIR/$WORK_ID" -type f -name "*.description" -exec bash -c 'mv "$0" "${0%.description}.txt"' {} \;
+          find "desc/$WORK_ID" -type f -name "*.description" -exec bash -c 'mv "$0" "${0%.description}.txt"' {} \;
           
-          # Gabungkan file dari subfolder isolasi ke folder utama kustom
-          mv $TARGET_VIDEO_DIR/$WORK_ID/* $TARGET_VIDEO_DIR/ 2>/dev/null || true
-          mv $TARGET_SUB_DIR/$WORK_ID/* $TARGET_SUB_DIR/ 2>/dev/null || true
-          mv $TARGET_DESC_DIR/$WORK_ID/* $TARGET_DESC_DIR/ 2>/dev/null || true
+          # Pindahkan hasil download bersih ke folder utama input/ sub/ desc/ untuk diproses script conversion
+          mv input/$WORK_ID/* input/ 2>/dev/null || true
+          mv sub/$WORK_ID/* sub/ 2>/dev/null || true
+          mv desc/$WORK_ID/* desc/ 2>/dev/null || true
           
-          # Sinkronisasi ke Rclone (ubah tujuan rclone jika foldernya beda)
-          rclone copy ./$TARGET_SUB_DIR HerpDrive:Here/YTout/sub || true
-          rclone copy ./$TARGET_DESC_DIR HerpDrive:Here/YTout/desc || true
+          rclone copy ./sub HerpDrive:Here/YTout/sub || true
+          rclone copy ./desc HerpDrive:Here/YTout/desc || true
 
       - name: Run conversion
         run: |
