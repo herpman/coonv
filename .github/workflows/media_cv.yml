@@ -1,0 +1,211 @@
+name: Flexible Media Downloader & Converter
+
+on:
+  workflow_dispatch:
+    inputs:
+      output_format:
+        description: 'Pilih Format Output'
+        required: true
+        default: 'mp4 / gif -> convert ke mp4 (Semua jadi Video MP4)'
+        type: choice
+        options:
+          - mp4 / gif -> convert ke mp4 (Semua jadi Video MP4)
+          - gif (Animasi Gerak)
+          - jpg (Gambar Statis)
+      quality:
+        description: 'Pilih Tingkat Kualitas / Kompresi'
+        required: true
+        default: 'medium'
+        type: choice
+        options:
+          - original (Tanpa Kompresi / Asli)
+          - high (Kompresi Ringan - Kualitas Bagus)
+          - medium (Kompresi Sedang - Seimbang)
+          - low (Kompresi Tinggi - Ukuran Paling Kecil)
+      download_mode:
+        description: 'Pilih Mode Hasil Unduhan'
+        required: true
+        default: 'single'
+        type: choice
+        options:
+          - single (Upload per file terpisah satu-satu / Folder)
+          - zip (Dijadikan satu file ZIP sekaligus)
+
+jobs:
+  process-flexible:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install System Tools (FFmpeg) & Dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+          pip install requests pillow opencv-python-headless beautifulsoup4
+
+      - name: Run Downloader Script
+        env:
+          OUT_FORMAT: ${{ github.event.inputs.output_format }}
+          QUALITY: ${{ github.event.inputs.quality }}
+        run: |
+          python -c "
+          import os, requests, re, subprocess, cv2
+          from bs4 import BeautifulSoup
+          from PIL import Image
+          from io import BytesIO
+          from urllib.parse import urlparse, unquote
+
+          out_format = os.environ['OUT_FORMAT']
+          quality_mode = os.environ['QUALITY']
+
+          # Menggunakan urls.txt agar selaras dengan workflow lain
+          txt_file = 'urls.txt'
+
+          if not os.path.exists(txt_file):
+              print(f'Peringatan: File {txt_file} tidak ditemukan. Membuat file contoh kosong...')
+              with open(txt_file, 'w', encoding='utf-8') as f:
+                  f.write('# Masukkan link di sini, 1 baris 1 link\n')
+
+          with open(txt_file, 'r', encoding='utf-8') as f:
+              urls = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
+
+          print(f'Total link ditemukan di {txt_file}: {len(urls)}')
+          if len(urls) == 0:
+              print('Perhatian: Tidak ada link valid di dalam file TXT!')
+
+          output_dir = 'hasil_download'
+          os.makedirs(output_dir, exist_ok=True)
+
+          headers = {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+          }
+
+          for idx, url in enumerate(urls, start=1):
+              print(f'\n--- Memproses [{idx}/{len(urls)}]: {url} ---')
+              try:
+                  resp = requests.get(url, headers=headers)
+                  html_content = resp.text
+                  soup = BeautifulSoup(html_content, 'html.parser')
+                  
+                  media_url = None
+                  video_tag = soup.find('video')
+                  if video_tag and video_tag.get('src'):
+                      media_url = video_tag.get('src')
+                  else:
+                      matches = re.findall(r'https?://[^\s\"\'<>]+?\.(?:mp4|gif|jpg|jpeg|png|webp)', html_content)
+                      found_links = [m for m in matches if not any(bad in m.lower() for bad in ['logo', 'icon', 'avatar', 'banner', 'thumb'])]
+                      if found_links:
+                          media_url = found_links[-1]
+                      else:
+                          og_vid = soup.find('meta', property='og:video')
+                          if og_vid and og_vid.get('content'):
+                              media_url = og_vid.get('content')
+                          else:
+                              og_img = soup.find('meta', property='og:image')
+                              if og_img and og_img.get('content'):
+                                  media_url = og_img.get('content')
+
+                  if not media_url:
+                      print(f'-> Gagal mendeteksi link media di: {url}')
+                      continue
+
+                  if media_url.startswith('/'):
+                      parsed = urlparse(url)
+                      media_url = f'{parsed.scheme}://{parsed.netloc}{media_url}'
+
+                  parsed_media_url = urlparse(media_url)
+                  original_basename = os.path.basename(parsed_media_url.path)
+                  original_basename = unquote(original_basename)
+                  
+                  if not original_basename or '.' not in original_basename:
+                      original_basename = f'media_{idx}.bin'
+
+                  name_without_ext, _ = os.path.splitext(original_basename)
+                  
+                  if 'jpg' in out_format:
+                      target_ext = '.jpg'
+                  elif 'gif' in out_format:
+                      target_ext = '.gif'
+                  else:
+                      target_ext = '.mp4'
+
+                  final_filename = f'{name_without_ext}{target_ext}'
+                  out_name = os.path.join(output_dir, final_filename)
+
+                  media_resp = requests.get(media_url, headers=headers)
+                  temp_input = f'temp_{idx}'
+                  with open(temp_input, 'wb') as f:
+                      f.write(media_resp.content)
+
+                  if 'jpg' in out_format:
+                      if '.mp4' in media_url.lower() or 'video' in media_resp.headers.get('content-type', ''):
+                          cap = cv2.VideoCapture(temp_input)
+                          success, frame = cap.read()
+                          cap.release()
+                          if success:
+                              cv2.imwrite(out_name, frame)
+                      else:
+                          im = Image.open(BytesIO(media_resp.content))
+                          im.convert('RGB').save(out_name, 'JPEG')
+                      
+                      if 'high' in quality_mode:
+                          Image.open(out_name).save(out_name, 'JPEG', quality=85)
+                      elif 'medium' in quality_mode:
+                          Image.open(out_name).save(out_name, 'JPEG', quality=70)
+                      elif 'low' in quality_mode:
+                          Image.open(out_name).save(out_name, 'JPEG', quality=45)
+
+                  elif 'gif' in out_format:
+                      if 'high' in quality_mode:
+                          subprocess.run(['ffmpeg', '-i', temp_input, '-vf', 'fps=20,scale=480:-1:flags=lanczos', '-c:v', 'gif', out_name])
+                      elif 'medium' in quality_mode:
+                          subprocess.run(['ffmpeg', '-i', temp_input, '-vf', 'fps=15,scale=360:-1:flags=lanczos', '-c:v', 'gif', out_name])
+                      elif 'low' in quality_mode:
+                          subprocess.run(['ffmpeg', '-i', temp_input, '-vf', 'fps=10,scale=240:-1:flags=lanczos', '-c:v', 'gif', out_name])
+                      else:
+                          subprocess.run(['ffmpeg', '-i', temp_input, '-c:v', 'gif', out_name])
+
+                  else:
+                      if 'high' in quality_mode:
+                          subprocess.run(['ffmpeg', '-i', temp_input, '-vcodec', 'libx264', '-crf', '22', '-vf', 'scale=-2:720', '-pix_fmt', 'yuv420p', out_name])
+                      elif 'medium' in quality_mode:
+                          subprocess.run(['ffmpeg', '-i', temp_input, '-vcodec', 'libx264', '-crf', '26', '-vf', 'scale=-2:480', '-pix_fmt', 'yuv420p', out_name])
+                      elif 'low' in quality_mode:
+                          subprocess.run(['ffmpeg', '-i', temp_input, '-vcodec', 'libx264', '-crf', '32', '-vf', 'scale=-2:360', '-pix_fmt', 'yuv420p', out_name])
+                      else:
+                          subprocess.run(['ffmpeg', '-i', temp_input, '-vcodec', 'libx264', '-crf', '18', '-pix_fmt', 'yuv420p', out_name])
+
+                  if os.path.exists(temp_input):
+                      os.remove(temp_input)
+                  print(f'-> Berhasil menyimpan: {final_filename}')
+              except Exception as e:
+                  print(f'-> Gagal memproses link {url}: {e}')
+
+          print('\nProses konversi selesai!')
+          "
+
+      - name: Archive to ZIP (If Mode ZIP Selected)
+        if: ${{ contains(github.event.inputs.download_mode, 'zip') }}
+        run: |
+          zip -r hasil-batch.zip hasil_download
+
+      - name: Upload Folder (Single Mode)
+        if: ${{ contains(github.event.inputs.download_mode, 'single') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: hasil-media-satuan
+          path: hasil_download/
+          if-no-files-found: ignore
+
+      - name: Upload ZIP (ZIP Mode)
+        if: ${{ contains(github.event.inputs.download_mode, 'zip') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: hasil-media-zip
+          path: hasil-batch.zip
+          if-no-files-found: ignore
