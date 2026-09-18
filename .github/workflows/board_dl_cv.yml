@@ -1,4 +1,4 @@
-name: Download and Convert MP4/GIF
+name: Download and Convert Media
 
 on:
   workflow_dispatch:
@@ -184,5 +184,4 @@ jobs:
           RD: ${{ github.event.inputs.RD }}
           PSY_RD: ${{ github.event.inputs.PSY_RD }}
           AQ_MODE: ${{ github.event.inputs.AQ_MODE }}
-          AQ_STRENGTH: ${{ github.event.inputs.AQ_STRENGTH }}nputs.AQ_MODE }}
           AQ_STRENGTH: ${{ github.event.inputs.AQ_STRENGTH }}
