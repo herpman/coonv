@@ -1,4 +1,4 @@
-name: Download and Convert Media
+name: Download and Convert GIF/MP4
 
 on:
   workflow_dispatch:
