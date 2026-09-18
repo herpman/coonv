@@ -1,0 +1,146 @@
+name: Download and Convert YouTube & Media Videos
+
+on:
+  workflow_dispatch:
+    inputs:
+      FPS:
+        description: 'FPS (e.g., source, 24)'
+        required: false
+        default: 'source'
+      RESOLUTION:
+        description: 'Resolution (e.g., source, 1280:-2)'
+        required: false
+        default: 'source'
+      CRF:
+        description: 'Constant Rate Factor'
+        required: false
+        default: '29.5'
+      DEBLOCK:
+        description: 'Deblock settings (e.g., 0:0)'
+        required: false
+        default: '0:0'
+      RD:
+        description: 'RD value'
+        required: false
+        default: '6'
+      PSY_RD:
+        description: 'Psy-RD value'
+        required: false
+        default: '1.00'
+      AQ_MODE:
+        description: 'AQ Mode (e.g., 2)'
+        required: false
+        default: '2'
+      AQ_STRENGTH:
+        description: 'AQ Strength'
+        required: false
+        default: '1.00'
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Disable man-db auto-update
+        run: |
+          echo 'set man-db/auto-update false' | sudo debconf-communicate
+          sudo dpkg-reconfigure man-db
+
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Read URLs and set matrix
+        id: set-matrix
+        run: |
+          urls=$(cat yt_urls.txt | grep -v '^#' | awk NF | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "matrix=$urls"
+          echo "matrix=$urls" >> $GITHUB_OUTPUT
+
+  convert:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        url: ${{fromJson(needs.prepare.outputs.matrix)}}
+      fail-fast: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install python3, yt-dlp & ffmpeg
+        run: |
+          sudo apt-get purge -y man-db
+          sudo apt-get install -y nodejs npm jq python3 python3-pip p7zip-full ffmpeg
+          python -m pip install --upgrade pip
+          python -m pip install -U "yt-dlp[default,curl-cffi]" yt-dlp-ejs --pre
+          yt-dlp --update-to nightly
+          yt-dlp --version
+
+      - name: Setup Rclone
+        uses: AnimMouse/setup-rclone@v1
+        with:
+          rclone_config: ${{ secrets.RCLONE_CONF }}
+
+      - name: Download Media (Smart MP4 & GIF Handler with Unique Names)
+        run: |
+          WORK_ID="job_${{ strategy.job-index }}_$RANDOM"
+          mkdir -p "input/$WORK_ID" "desc/$WORK_ID"
+          URL="${{ matrix.url }}"
+          
+          FILENAME_TEMPLATE="id-time-%(epoch)s.%(ext)s"
+          
+          if [[ "$URL" == *"gif"* ]]; then
+            echo "Detected GIF link, downloading source file and generating preview..."
+            cd "input/$WORK_ID"
+            GIF_URL=$(curl -s "$URL" | grep -oE 'https?://[^ "]+?\.(gif)' | head -n 1)
+            if [ -z "$GIF_URL" ]; then
+              GIF_URL="$URL"
+            fi
+            curl -L -o "animation.gif" "$GIF_URL" || true
+            
+            if [ -f "animation.gif" ]; then
+              # Buat preview JPG untuk folder desc dari frame pertama GIF
+              ffmpeg -i "animation.gif" -vframes 1 "../../desc/$WORK_ID/id-time-$(date +%s).jpg" -y 2>/dev/null || true
+              mv animation.gif "id-time-$(date +%s).gif"
+            fi
+            cd ../..
+          else
+            # Untuk URL MP4 / Video standar via yt-dlp
+            yt-dlp --js-runtimes node \
+                   --fragment-retries 5 --concurrent-fragments 1 \
+                   --no-playlist --restrict-filenames \
+                   --no-abort-on-error \
+                   -o "$FILENAME_TEMPLATE" \
+                   -P "input/$WORK_ID" "$URL" || true
+                   
+            yt-dlp --js-runtimes node \
+                   --skip-download --restrict-filenames \
+                   -o "$FILENAME_TEMPLATE" \
+                   --write-thumbnail --convert-thumbnails jpg \
+                   -P "desc/$WORK_ID" "$URL" || true
+          fi
+          
+          # Pindahkan ke folder utama sebelum rclone dan convert
+          mv input/$WORK_ID/* input/ 2>/dev/null || true
+          mv desc/$WORK_ID/* desc/ 2>/dev/null || true
+          
+          rclone copy ./desc HerpDrive:Here/YTout/desc || true
+
+      - name: Run conversion
+        run: |
+          mkdir -p scripts 
+          rclone copy DBOX:scripts ./scripts
+          chmod +x ./scripts/convert_yt.sh
+          ./scripts/convert_yt.sh
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+          FPS: ${{ github.event.inputs.FPS }}
+          RESOLUTION: ${{ github.event.inputs.RESOLUTION }}
+          CRF: ${{ github.event.inputs.CRF }}
+          DEBLOCK: ${{ github.event.inputs.DEBLOCK }}
+          RD: ${{ github.event.inputs.RD }}
+          PSY_RD: ${{ github.event.inputs.PSY_RD }}
+          AQ_MODE: ${{ github.event.inputs.AQ_MODE }}
+          AQ_STRENGTH: ${{ github.event.inputs.AQ_STRENGTH }}
