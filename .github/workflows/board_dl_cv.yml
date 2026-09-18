@@ -1,4 +1,4 @@
-name: Download and Convert YouTube & Media Videos
+name: Download and Convert Board & Media Videos
 
 on:
   workflow_dispatch:
