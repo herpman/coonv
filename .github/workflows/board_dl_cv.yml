@@ -1,4 +1,4 @@
-name: Unified MP4 & GIF Converter and Downloader
+name: Download and Convert MP4/GIF
 
 on:
   workflow_dispatch:
@@ -37,183 +37,139 @@ on:
         default: '1.00'
 
 jobs:
-  unified-process:
+  prepare:
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      - name: Disable man-db auto-update
+        run: |
+          echo 'set man-db/auto-update false' | sudo debconf-communicate
+          sudo dpkg-reconfigure man-db
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Read URLs and set matrix
+        id: set-matrix
+        run: |
+          urls=$(cat yt_urls.txt | grep -v '^#' | awk NF | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "matrix=$urls"
+          echo "matrix=$urls" >> $GITHUB_OUTPUT
+
+  convert:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        url: ${{fromJson(needs.prepare.outputs.matrix)}}
+      fail-fast: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install python3, yt-dlp & Dependencies
+        run: |
+          sudo apt-get purge -y man-db
+          sudo apt-get install -y nodejs npm jq python3 python3-pip p7zip-full
+          pip install requests pillow opencv-python-headless beautifulsoup4
+          curl -L "https://www.dropbox.com/scl/fi/bdioefcl1dce4zs7iqqr6/ffmpeg-release-amd64-static.tar.xz?rlkey=npbqixqrbarhmuymm4ps5em45&dl=1" -o "ffmpeg.tar.xz"
+          tar -xf ffmpeg.tar.xz
+          sudo mv ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/
+          sudo chmod +x /usr/local/bin/ffmpeg
+          curl -L "https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v6.1/ffprobe-6.1-linux-64.zip" -o "./ffprobe-6.1-linux-64.zip"
+          7z x ./ffprobe-6.1-linux-64.zip || (sudo apt-get update && sudo apt-get install -y p7zip-full && 7z x ./ffprobe-6.1-linux-64.zip)
+          sudo chmod +x ./ffprobe
+          sudo mv ./ffprobe /usr/local/bin/ffprobe
+          python -m pip install --upgrade pip
+          python -m pip install -U "yt-dlp[default,curl-cffi]" yt-dlp-ejs --pre
+          yt-dlp --update-to nightly
+          yt-dlp --version
 
       - name: Setup Rclone
         uses: AnimMouse/setup-rclone@v1
         with:
           rclone_config: ${{ secrets.RCLONE_CONF }}
 
-      - name: Install System Tools & Dependencies
+      - name: Smart Download Media (yt-dlp for MP4, BeautifulSoup for GIF)
         run: |
-          sudo apt-get update && sudo apt-get install -y ffmpeg p7zip-full jq
-          python -m pip install --upgrade pip
-          pip install requests pillow opencv-python-headless beautifulsoup4 yt-dlp
-          python -m pip install -U "yt-dlp[default,curl-cffi]" yt-dlp-ejs --pre
-
-      - name: Smart Download & Route (yt-dlp for MP4, BeautifulSoup for GIF)
-        run: |
-          python -c "
-          import os, requests, re, subprocess, cv2
-          from bs4 import BeautifulSoup
-          from PIL import Image
-          from urllib.parse import urlparse, unquote
-
-          txt_file = 'yt_urls.txt'
-          if not os.path.exists(txt_file):
-              txt_file = 'urls.txt'
+          WORK_ID="job_${{ strategy.job-index }}_$RANDOM"
+          mkdir -p "input/$WORK_ID" "sub/$WORK_ID" "desc/$WORK_ID"
+          URL="${{ matrix.url }}"
+          EPOCH_TIME=$(date +%s)
           
-          if not os.path.exists(txt_file):
-              print(f'Peringatan: File daftar URL tidak ditemukan.')
-              urls = []
+          # Cek apakah URL terindikasi GIF atau link non-video standar
+          if [[ "$URL" == *"gif"* ]]; then
+            echo "Detected GIF link, using BeautifulSoup extraction..."
+            python3 -c "
+            import os, requests, re, cv2
+            from bs4 import BeautifulSoup
+            from urllib.parse import urlparse, unquote
+
+            url = '$URL'
+            work_dir = 'input/$WORK_ID'
+            desc_dir = 'desc/$WORK_ID'
+            epoch = '$EPOCH_TIME'
+            
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            resp = requests.get(url, headers=headers, timeout=15)
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            
+            media_url = None
+            matches = re.findall(r'https?://[^\s\"\'<>]+?\.(?:gif|mp4)', resp.text)
+            valid_matches = [m for m in matches if not any(bad in m.lower() for bad in ['logo', 'icon', 'avatar', 'thumb'])]
+            if valid_matches:
+                media_url = valid_matches[0]
+            else:
+                media_url = url
+                
+            print(f'Found GIF source: {media_url}')
+            res = requests.get(media_url, headers=headers, timeout=30)
+            
+            gif_filename = f'id-time-{epoch}.gif'
+            gif_path = os.path.join(work_dir, gif_filename)
+            with open(gif_path, 'wb') as f:
+                f.write(res.content)
+                
+            # Buat preview frame pertama jadi JPG di folder desc
+            if os.path.exists(gif_path):
+                cap = cv2.VideoCapture(gif_path)
+                success, frame = cap.read()
+                cap.release()
+                if success:
+                    cv2.imwrite(os.path.join(desc_dir, f'id-time-{epoch}.jpg'), frame)
+            "
           else:
-              with open(txt_file, 'r', encoding='utf-8') as f:
-                  urls = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
+            # Gunakan yt-dlp standar untuk link MP4 / YouTube / Video biasa
+            FILENAME_TEMPLATE="%(title).50s_id-%(id)s_time-%(epoch)s.%(ext)s"
+            
+            yt-dlp --js-runtimes node \
+                   --extractor-args "youtube:player_client=web_embedded" \
+                   --fragment-retries 5 --concurrent-fragments 1 \
+                   --cookies youtube_cookies.txt \
+                   --no-playlist -t sleep --restrict-filenames \
+                   --hls-use-mpegts --no-abort-on-error \
+                   -o "$FILENAME_TEMPLATE" \
+                   -f "bv*[vcodec^=avc1]+ba/b / best" \
+                   -P "input/$WORK_ID" "$URL" || true
+            
+            yt-dlp --js-runtimes node --fragment-retries 5 --concurrent-fragments 5 --cookies youtube_cookies.txt --no-playlist -t sleep --skip-download --restrict-filenames -o "$FILENAME_TEMPLATE" --write-sub --write-auto-sub --sub-lang en --convert-subs srt -P "sub/$WORK_ID" "$URL" || true
+            
+            yt-dlp --js-runtimes node --fragment-retries 5 --concurrent-fragments 5 --cookies youtube_cookies.txt --no-playlist -t sleep --skip-download --restrict-filenames -o "$FILENAME_TEMPLATE" --write-thumbnail --write-description --convert-thumbnails jpg -P "desc/$WORK_ID" "$URL" || true
+            
+            find "desc/$WORK_ID" -type f -name "*.description" -exec bash -c 'mv "$0" "${0%.description}.txt"' {} \;
+          fi
+          
+          # Pindahkan file dari folder isolasi sementara ke folder utama
+          mv input/$WORK_ID/* input/ 2>/dev/null || true
+          mv sub/$WORK_ID/* sub/ 2>/dev/null || true
+          mv desc/$WORK_ID/* desc/ 2>/dev/null || true
+          
+          rclone copy ./sub HerpDrive:Here/YTout/sub || true
+          rclone copy ./desc HerpDrive:Here/YTout/desc || true
 
-          print(f'Total link ditemukan: {len(urls)}')
-
-          input_dir = 'input'
-          desc_dir = 'desc'
-          os.makedirs(input_dir, exist_ok=True)
-          os.makedirs(desc_dir, exist_ok=True)
-
-          headers = {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-              'Accept': '*/*'
-          }
-
-          for idx, url in enumerate(urls, start=1):
-              print(f'\n--- Memproses [{idx}/{len(urls)}]: {url} ---')
-              try:
-                  is_gif = 'gif' in url.lower()
-                  media_url = None
-                  thumbnail_url = None
-                  is_direct_thumbnail = False
-
-                  # Jika bukan GIF, coba jalur yt-dlp dulu untuk MP4/video standar
-                  if not is_gif:
-                      temp_id_name = f'temp_ytdlp_{idx}'
-                      print('-> Mencoba mengunduh via yt-dlp...')
-                      ydl_res = subprocess.run([
-                          'yt-dlp', '--no-warnings', '--no-part', 
-                          '--restrict-filenames', '--no-playlist',
-                          '-o', temp_id_name, url
-                      ])
-                      
-                      # Cek apakah yt-dlp berhasil mendownload file video
-                      found_file = None
-                      for f in os.listdir('.'):
-                          if f.startswith(temp_id_name) and not f.endswith('.part'):
-                              found_file = f
-                              break
-                      
-                      if ydl_res.returncode == 0 and found_file:
-                          # Berhasil via yt-dlp -> Pindahkan ke folder input
-                          ext = os.path.splitext(found_file)[1]
-                          final_name = f'id-time-%(epoch)s{ext}'
-                          # Ambil thumbnail via yt-dlp secara otomatis ke folder desc
-                          subprocess.run([
-                              'yt-dlp', '--skip-download', '--restrict-filenames',
-                              '--write-thumbnail', '--convert-thumbnails', 'jpg',
-                              '-o', f'desc/id-{idx}', url
-                          ])
-                          os.rename(found_file, os.path.join(input_dir, f'video_{idx}{ext}'))
-                          print('-> Berhasil diproses menggunakan yt-dlp!')
-                          continue
-                      else:
-                          print('-> yt-dlp tidak mendeteksi sebagai video standar, beralih ke BeautifulSoup...')
-
-                  # Jalur BeautifulSoup (Untuk GIF atau link web post/view yang ditolak yt-dlp)
-                  resp = requests.get(url, headers=headers, timeout=15)
-                  html_content = resp.text
-                  soup = BeautifulSoup(html_content, 'html.parser')
-                  
-                  video_tag = soup.find('video')
-                  if video_tag and video_tag.get('poster'):
-                      thumbnail_url = video_tag.get('poster')
-                  
-                  if not thumbnail_url:
-                      og_img = soup.find('meta', property='og:image')
-                      if og_img and og_img.get('content'):
-                          thumbnail_url = og_img.get('content')
-
-                  if not thumbnail_url:
-                      og_vid = soup.find('meta', property='og:video') or soup.find('meta', property='og:video:secure_url')
-                      if og_vid and og_vid.get('content'):
-                          media_url = og_vid.get('content')
-
-                  if not media_url and thumbnail_url:
-                      media_url = thumbnail_url
-                      is_direct_thumbnail = True
-
-                  if not media_url and video_tag:
-                      if video_tag.get('src'):
-                          media_url = video_tag.get('src')
-                      elif video_tag.find('source') and video_tag.find('source').get('src'):
-                          media_url = video_tag.find('source').get('src')
-
-                  if not media_url:
-                      matches = re.findall(r'https?://[^\s\"\'<>]+?\.(?:gif|mp4|webp|jpg)', html_content)
-                      bad_keywords = ['logo', 'icon', 'avatar', 'banner', 'thumb', 'profile', 'emoji', 'advert', 'ads']
-                      valid_matches = [m for m in matches if not any(bad in m.lower() for bad in bad_keywords)]
-                      if valid_matches:
-                          media_url = valid_matches[0]
-
-                  if not media_url:
-                      media_url = url # Fallback langsung ke URL jika mentah
-
-                  if media_url.startswith('/'):
-                      parsed = urlparse(url)
-                      media_url = f'{parsed.scheme}://{parsed.netloc}{media_url}'
-
-                  print(f'-> Target Media BeautifulSoup: {media_url}')
-                  
-                  # Download file mentah via requests/curl
-                  temp_bin = f'temp_bin_{idx}.bin'
-                  media_resp = requests.get(media_url, headers=headers, timeout=30)
-                  with open(temp_bin, 'wb') as f:
-                      f.write(media_resp.content)
-
-                  if os.path.exists(temp_bin) and os.path.getsize(temp_bin) > 1024:
-                      if 'gif' in media_url.lower() or is_gif:
-                          # Simpan file GIF asli ke input untuk dikonversi nanti oleh skrip .sh
-                          final_gif_name = f'gif_source_{idx}.gif'
-                          os.rename(temp_bin, os.path.join(input_dir, final_gif_name))
-                          
-                          # Ekstrak frame pertama dari GIF untuk preview JPG ke folder desc
-                          cap = cv2.VideoCapture(os.path.join(input_dir, final_gif_name))
-                          success, frame = cap.read()
-                          cap.release()
-                          if success:
-                              cv2.imwrite(os.path.join(desc_dir, f'gif_preview_{idx}.jpg'), frame)
-                          print('-> File GIF dan Preview JPG berhasil diamankan.')
-                      else:
-                          # Jika berupa file langsung (.mp4/.webm dll)
-                          os.rename(temp_bin, os.path.join(input_dir, f'direct_media_{idx}.mp4'))
-                          if thumbnail_url:
-                              img_data = requests.get(thumbnail_url, headers=headers).content
-                              with open(os.path.join(desc_dir, f'thumb_{idx}.jpg'), 'wb') as tf:
-                                  tf.write(img_data)
-                          print('-> File media langsung berhasil disimpan.')
-                  else:
-                      print('-> Gagal mengunduh file media secara utuh.')
-
-              except Exception as e:
-                  print(f'-> Gagal memproses link {url}: {e}')
-
-          print('\nProses unduh dan ekstraksi awal selesai!')
-          "
-
-      - name: Run External Sh Conversion Script
+      - name: Run conversion
         run: |
           mkdir -p scripts 
           rclone copy DBOX:scripts ./scripts
@@ -228,4 +184,5 @@ jobs:
           RD: ${{ github.event.inputs.RD }}
           PSY_RD: ${{ github.event.inputs.PSY_RD }}
           AQ_MODE: ${{ github.event.inputs.AQ_MODE }}
+          AQ_STRENGTH: ${{ github.event.inputs.AQ_STRENGTH }}nputs.AQ_MODE }}
           AQ_STRENGTH: ${{ github.event.inputs.AQ_STRENGTH }}
