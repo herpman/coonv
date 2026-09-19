@@ -13,12 +13,13 @@ headers = {
     'User-Agent': (
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
         'AppleWebKit/537.36 (KHTML, like Gecko) '
-        'Chrome/120.0.0.0 Safari/537.36'
+        'Chrome/122.0.0.0 Safari/537.36'
     ),
     'Accept': (
         'text/html,application/xhtml+xml,application/xml;'
-        'q=0.9,image/webp,*/*;q=0.8'
+        'q=0.9,image/avif,image/webp,*/*;q=0.8'
     ),
+    'Accept-Language': 'en-US,en;q=0.5',
 }
 
 try:
@@ -66,7 +67,16 @@ try:
 
   print(f'Target Media ditemukan: {media_url}')
 
-  media_res = requests.get(media_url, headers=headers, timeout=30)
+  # Download dengan stream untuk cek header Content-Type
+  media_res = requests.get(media_url, headers=headers, stream=True, timeout=30)
+  content_type = media_res.headers.get('Content-Type', '').lower()
+
+  # Validasi: Jika server mengembalikan HTML (bukan video/gambar), batalkan agar tidak error
+  if 'text/html' in content_type:
+    raise Exception(
+        'Gagal mengunduh media: URL mengarah ke halaman HTML/Cloudflare (Diblokir/Protected), bukan file media langsung.'
+    )
+
   ext = 'mp4'
   if '.gif' in media_url.lower() or '.gif' in url.lower():
     ext = 'gif'
@@ -75,20 +85,28 @@ try:
 
   filename = f'id-time-{epoch}.{ext}'
   filepath = os.path.join(work_dir, filename)
+  
   with open(filepath, 'wb') as f:
-    f.write(media_res.content)
+    for chunk in media_res.iter_content(chunk_size=8192):
+      f.write(chunk)
 
-  if os.path.exists(filepath) and os.path.getsize(filepath) > 1024:
+  # Validasi file fisik minimal ada isinya dan bukan file HTML yang nyasar
+  if os.path.exists(filepath) and os.path.getsize(filepath) > 5000:
     if ext in ['gif', 'mp4', 'webm']:
       cap = cv2.VideoCapture(filepath)
       success, frame = cap.read()
       cap.release()
-      if success:
+      if success and frame is not None:
         cv2.imwrite(os.path.join(desc_dir, f'id-time-{epoch}.jpg'), frame)
+        print('Berhasil mengambil frame preview!')
+      else:
+        print('Peringatan: Gagal ekstrak frame video dengan OpenCV, tapi file media tetap aman.')
     elif thumbnail_url:
       thumb_res = requests.get(thumbnail_url, headers=headers)
       with open(os.path.join(desc_dir, f'id-time-{epoch}.jpg'), 'wb') as tf:
         tf.write(thumb_res.content)
+  else:
+    raise Exception('File yang diunduh terlalu kecil atau kosong.')
 
   print('Berhasil mengunduh media via BeautifulSoup!')
 except Exception as e:
