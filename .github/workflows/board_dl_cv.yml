@@ -101,15 +101,17 @@ jobs:
           
           if [[ "$URL" != *"youtube.com"* && "$URL" != *"youtu.be"* ]]; then
             echo "Detected non-YouTube URL, using BeautifulSoup & Requests extraction..."
-            python3 -c "
+            
+            # Membuat file skrip python secara bersih agar tidak ada error sintaks YAML/indentasi
+            cat << 'EOF' > scraper.py
 import os, requests, re, cv2
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, unquote
 
-url = '$URL'
-work_dir = 'input/$WORK_ID'
-desc_dir = 'desc/$WORK_ID'
-epoch = '$EPOCH_TIME'
+url = os.environ.get('TARGET_URL')
+work_dir = os.environ.get('WORK_DIR')
+desc_dir = os.environ.get('DESC_DIR')
+epoch = os.environ.get('EPOCH_TIME')
 
 headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -151,7 +153,7 @@ try:
     if not media_url:
         media_url = url
 
-    print(f'Target Media ditemukan: {media_url}')
+    print(f"Target Media ditemukan: {media_url}")
     
     media_res = requests.get(media_url, headers=headers, timeout=30)
     ext = 'mp4'
@@ -160,7 +162,7 @@ try:
     elif '.webm' in media_url.lower():
         ext = 'webm'
 
-    filename = f'id-time-{epoch}.{ext}'
+    filename = f"id-time-{epoch}.{ext}"
     filepath = os.path.join(work_dir, filename)
     with open(filepath, 'wb') as f:
         f.write(media_res.content)
@@ -171,16 +173,22 @@ try:
             success, frame = cap.read()
             cap.release()
             if success:
-                cv2.imwrite(os.path.join(desc_dir, f'id-time-{epoch}.jpg'), frame)
+                cv2.imwrite(os.path.join(desc_dir, f"id-time-{epoch}.jpg"), frame)
         elif thumbnail_url:
             thumb_res = requests.get(thumbnail_url, headers=headers)
-            with open(os.path.join(desc_dir, f'id-time-{epoch}.jpg'), 'wb') as tf:
+            with open(os.path.join(desc_dir, f"id-time-{epoch}.jpg"), 'wb') as tf:
                 tf.write(thumb_res.content)
                 
-    print('Berhasil mengunduh media via BeautifulSoup!')
+    print("Berhasil mengunduh media via BeautifulSoup!")
 except Exception as e:
-    print(f'Gagal memproses via BeautifulSoup: {e}')
-"
+    print(f"Gagal memproses via BeautifulSoup: {e}")
+EOF
+
+            export TARGET_URL="$URL"
+            export WORK_DIR="input/$WORK_ID"
+            export DESC_DIR="desc/$WORK_ID"
+            export EPOCH_TIME="$EPOCH_TIME"
+            python3 scraper.py
           else:
             FILENAME_TEMPLATE="%(title).50s_id-%(id)s_time-%(epoch)s.%(ext)s"
             
