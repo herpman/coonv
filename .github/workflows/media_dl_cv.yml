@@ -103,7 +103,7 @@ jobs:
           FILENAME_TEMPLATE="%(title).50s_id-%(id)s_time-%(epoch)s.%(ext)s"
           
           yt-dlp --js-runtimes node \
-                 --extractor-args "youtube:player_client=web_embedded" \
+                 --extractor-args "generic:impersonate;youtube:player_client=web_embedded" \
                  --fragment-retries 5 --concurrent-fragments 1 \
                  --cookies youtube_cookies.txt \
                  --no-playlist -t sleep --restrict-filenames \
