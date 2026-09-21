@@ -1,0 +1,36 @@
+name: Clean Duplicate URLs
+
+on:
+  workflow_dispatch: # Bisa dijalankan manual lewat tab Actions di GitHub
+  push:
+    paths:
+      - 'yt_urls.txt' # Otomatis berjalan setiap kali Anda mengedit/push file yt_urls.txt baru
+
+permissions:
+  contents: write # Wajib ada agar GitHub Actions diizinkan melakukan git push
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Run Duplicate Remover Script
+        run: |
+          python remove_duplicates.py
+
+      - name: Commit and Push Cleaned yt_urls.txt
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add yt_urls.txt
+          
+          # Cek apakah ada perubahan file. Jika ada, commit & push. Jika tidak ada, skip.
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-clean duplicate links in yt_urls.txt" && git push)
