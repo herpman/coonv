@@ -1,4 +1,4 @@
-name: Download and Convert Media
+name: Download and Convert Board Media
 
 on:
   workflow_dispatch:
