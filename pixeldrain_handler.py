@@ -2,45 +2,41 @@ import os
 import zipfile
 import requests
 
-url = os.environ.get('TARGET_URL')
+task_str = os.environ.get('TASK_STRING')
 work_dir = os.environ.get('WORK_DIR')
-epoch = os.environ.get('EPOCH_TIME')
 
-file_id = url.split('/u/')[-1].split('?')[0]
-api_download_url = f'https://pixeldrain.com/api/file/{file_id}'
-info_url = f'https://pixeldrain.com/api/file/{file_id}/info'
+# Format string: pixeldrain-sub__FILEID__SUBPATH
+parts = task_str.split('__')
+file_id = parts[1]
+sub_file = parts[2]
 
+api_url = f'https://pixeldrain.com/api/file/{file_id}'
 headers = {'User-Agent': 'Mozilla/5.0'}
-file_name = f'file-{epoch}'
-ext = 'mp4'
 
 try:
-  meta_res = requests.get(info_url, headers=headers, timeout=15)
-  if meta_res.status_code == 200:
-    data = meta_res.json()
-    if 'name' in data:
-      file_name = data['name']
-      if '.' in file_name:
-        ext = file_name.split('.')[-1].lower()
+  print(f'Downloading full archive to extract single file: {sub_file}')
+  res = requests.get(api_url, headers=headers, stream=True, timeout=120)
 
-  print(f'Downloading Pixeldrain file: {file_name} (Ext: {ext})')
-  res = requests.get(api_download_url, headers=headers, stream=True, timeout=60)
-
-  archive_path = os.path.join(work_dir, file_name)
-  with open(archive_path, 'wb') as f:
+  temp_arc = os.path.join(work_dir, 'temp_archive.zip')
+  with open(temp_arc, 'wb') as f:
     for chunk in res.iter_content(chunk_size=8192):
       f.write(chunk)
 
-  # Jika berupa file arsip, ekstrak otomatis ke work_dir
-  if ext in ['zip', 'rar', '7z', 'tar', 'gz', 'tgz']:
-    print(f'Extracting archive format {ext}...')
-    if ext == 'zip':
-      with zipfile.ZipFile(archive_path, 'r') as zf:
-        zf.extractall(work_dir)
-      os.remove(archive_path)
-    else:
-      os.system(f'7z x "{archive_path}" -o"{work_dir}" -y')
-      os.remove(archive_path)
-  print('Pixeldrain processing complete!')
+  # Ekstrak hanya file yang dimaksud
+  if zipfile.is_zipfile(temp_arc):
+    with zipfile.ZipFile(temp_arc, 'r') as zf:
+      # Ekstrak file spesifik ke work_dir
+      zf.extract(sub_file, path=work_dir)
+
+      # Pindahkan file hasil ekstrak ke akar work_dir jika berada di dalam subfolder
+      extracted_path = os.path.join(work_dir, sub_file)
+      if extracted_path != os.path.join(work_dir, os.path.basename(sub_file)):
+        import shutil
+
+        target_path = os.path.join(work_dir, os.path.basename(sub_file))
+        shutil.move(extracted_path, target_path)
+
+  os.remove(temp_arc)
+  print(f'Successfully extracted parallel task file: {sub_file}')
 except Exception as e:
-  print(f'Error processing Pixeldrain: {e}')
+  print(f'Error in sub_handler: {e}')
