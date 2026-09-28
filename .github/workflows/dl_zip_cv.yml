@@ -1,4 +1,4 @@
-name: Download and Convert Media and Zip
+name: Download and Convert Media
 
 on:
   workflow_dispatch:
@@ -91,67 +91,20 @@ jobs:
         with:
           rclone_config: ${{ secrets.RCLONE_CONF }}
 
-      - name: Smart Download Media (yt-dlp for YouTube/Generic, API for Pixeldrain)
+      - name: Smart Download Media (yt-dlp for YouTube, API for Pixeldrain)
         run: |
           WORK_ID="job_${{ strategy.job-index }}_$RANDOM"
           mkdir -p "input/$WORK_ID" "sub/$WORK_ID" "desc/$WORK_ID"
           URL="${{ matrix.url }}"
           EPOCH_TIME=$(date +%s)
           
-          # Cek apakah URL dari Pixeldrain
           if [[ "$URL" == *"pixeldrain.com/u/"* ]]; then
-            echo "Detected Pixeldrain link, processing via Direct API..."
-            python3 -c "
-import os, requests
-import zipfile, tarfile
-from urllib.parse import urlparse
-
-url = '$URL'
-work_dir = 'input/$WORK_ID'
-epoch = '$EPOCH_TIME'
-
-file_id = url.split('/u/')[-1].split('?')[0]
-api_download_url = f'https://pixeldrain.com/api/file/{file_id}'
-info_url = f'https://pixeldrain.com/api/file/{file_id}/info'
-
-headers = {'User-Agent': 'Mozilla/5.0'}
-file_name = f'file-{epoch}'
-ext = 'mp4'
-
-try:
-    meta_res = requests.get(info_url, headers=headers, timeout=15)
-    if meta_res.status_code == 200:
-        data = meta_res.json()
-        if 'name' in data:
-            file_name = data['name']
-            if '.' in file_name:
-                ext = file_name.split('.')[-1].lower()
-
-    print(f'Downloading Pixeldrain file: {file_name} (Ext: {ext})')
-    res = requests.get(api_download_url, headers=headers, stream=True, timeout=60)
-    
-    archive_path = os.path.join(work_dir, file_name)
-    with open(archive_path, 'wb') as f:
-        for chunk in res.iter_content(chunk_size=8192):
-            f.write(chunk)
-
-    # Jika berupa file arsip (zip, rar, 7z, tar, dll), ekstrak langsung ke work_dir
-    if ext in ['zip', 'rar', '7z', 'tar', 'gz', 'tgz']:
-        print(f'Extracting archive {ext}...')
-        if ext == 'zip':
-            with zipfile.ZipFile(archive_path, 'r') as zf:
-                zf.extractall(work_dir)
-            os.remove(archive_path)
-        else:
-            # Gunakan 7z untuk format lain (rar, 7z, tar, dll)
-            os.system(f'7z x \"{archive_path}\" -o\"{work_dir}\" -y')
-            os.remove(archive_path)
-    print('Pixeldrain processing complete!')
-except Exception as e:
-    print(f'Error processing Pixeldrain: {e}')
-"
-          else:
-            # Jalur standar yt-dlp untuk YouTube atau link streaming web lainnya
+            echo "Detected Pixeldrain link, processing via external handler..."
+            export TARGET_URL="$URL"
+            export WORK_DIR="input/$WORK_ID"
+            export EPOCH_TIME="$EPOCH_TIME"
+            python3 pixeldrain_handler.py
+          else
             FILENAME_TEMPLATE="%(title).50s_id-%(id)s_time-%(epoch)s.%(ext)s"
             
             yt-dlp --js-runtimes node \
@@ -171,7 +124,6 @@ except Exception as e:
             find "desc/$WORK_ID" -type f -name "*.description" -exec bash -c 'mv "$0" "${0%.description}.txt"' {} \;
           fi
           
-          # Pindahkan file dari folder isolasi sementara ke folder utama
           mv input/$WORK_ID/* input/ 2>/dev/null || true
           mv sub/$WORK_ID/* sub/ 2>/dev/null || true
           mv desc/$WORK_ID/* desc/ 2>/dev/null || true
