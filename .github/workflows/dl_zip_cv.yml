@@ -1,4 +1,4 @@
-name: Download and Convert Media and Zip
+name: Download and Convert Media
 
 on:
   workflow_dispatch:
@@ -42,34 +42,107 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      - name: Disable man-db auto-update
-        run: |
-          echo 'set man-db/auto-update false' | sudo debconf-communicate
-          sudo dpkg-reconfigure man-db
-
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Read URLs and set matrix
+      - name: Set up Python & Dependencies
+        run: pip install requests p7zip-full
+
+      - name: Expand URLs and build parallel matrix
         id: set-matrix
         run: |
-          urls=$(cat yt_urls.txt | grep -v '^#' | awk NF | jq -R -s -c 'split("\n") | map(select(length > 0))')
-          echo "matrix=$urls"
-          echo "matrix=$urls" >> $GITHUB_OUTPUT
+          python3 -c "
+          import os, json, zipfile, requests, tempfile
+          
+          urls_file = 'yt_urls.txt'
+          final_tasks = []
+          
+          if os.path.exists(urls_file):
+              with open(urls_file, 'r', encoding='utf-8') as f:
+                  lines = f.readlines()
+              
+              for line in lines:
+                  url = line.strip()
+                  if not url or url.startswith('#'):
+                      continue
+                  
+                  # Jika ini link Pixeldrain, cek apakah itu arsip atau file tunggal
+                  if 'pixeldrain.com/u/' in url:
+                      file_id = url.split('/u/')[-1].split('?')[0]
+                      info_url = f'https://pixeldrain.com/api/file/{file_id}/info'
+                      try:
+                          res = requests.get(info_url, timeout=10)
+                          if res.status_code == 200:
+                              data = res.json()
+                              filename = data.get('name', '')
+                              ext = filename.split('.')[-1].lower() if '.' in filename else ''
+                              
+                              # Jika berupa arsip, download sebentar untuk intip isi file di dalamnya
+                              if ext in ['zip', 'rar', '7z', 'tar', 'gz', 'tgz']:
+                                  print(f'Mengekspansi arsip Pixeldrain ke matrix: {filename}')
+                                  api_dl = f'https://pixeldrain.com/api/file/{file_id}'
+                                  
+                                  with tempfile.TemporaryDirectory() as tmpdir:
+                                      arc_path = os.path.join(tmpdir, filename)
+                                      r = requests.get(api_dl, stream=True, timeout=30)
+                                      with open(arc_path, 'wb') as wf:
+                                          for chunk in r.iter_content(8192):
+                                              wf.write(chunk)
+                                      
+                                      # Ekstrak untuk ambil nama-nama file di dalamnya
+                                      if ext == 'zip':
+                                          with zipfile.ZipFile(arc_path, 'r') as zf:
+                                              internal_files = zf.namelist()
+                                      else:
+                                          os.system(f'7z l \"{arc_path}\" -slt > \"{tmpdir}/list.txt\"')
+                                          internal_files = []
+                                          # Sederhanakan pengambilan nama file dari 7z list
+                                          with open(f'{tmpdir}/list.txt', 'r', encoding='ignore') as lf:
+                                              for l in lf:
+                                                  if l.startswith('Path = '):
+                                                      p = l.split(' = ')[1].strip()
+                                                      if p != filename: internal_files.append(p)
+                                      
+                                      # Buat task unik untuk setiap file di dalam zip
+                                      for idx, subfile in enumerate(internal_files):
+                                          if not subfile.endswith('/') and any(subfile.lower().endswith(e) for e in ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.gif']):
+                                              # Kirim penanda khusus ke matrix bahwa ini adalah sub-file dari zip Pixeldrain
+                                              task_data = f'pixeldrain-sub__{file_id}__{subfile}'
+                                              final_tasks.append(task_data)
+                              else:
+                                  final_tasks.append(url)
+                          else:
+                              final_tasks.append(url)
+                      except Exception as e:
+                          print(f'Gagal ekspansi pixeldrain: {e}')
+                          final_tasks.append(url)
+                  else:
+                      # Link YouTube / Web biasa masuk langsung
+                      final_tasks.append(url)
+          
+          # Hapus duplikat final matrix
+          final_tasks = list(dict.fromkeys(final_tasks))
+          print('Final Matrix Tasks:', final_tasks)
+          
+          # Simpan ke output GitHub Actions
+          matrix_json = json.dumps(final_tasks)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              out.write(f'matrix={matrix_json}\n')
+          "
 
   convert:
     needs: prepare
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        url: ${{fromJson(needs.prepare.outputs.matrix)}}
+        task: ${{fromJson(needs.prepare.outputs.matrix)}}
       fail-fast: false
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Install python3 & yt-dlp
+      - name: Install Dependencies
         run: |
           sudo apt-get purge -y man-db
           sudo apt-get install -y nodejs npm jq python3 python3-pip p7zip-full unzip
@@ -84,27 +157,32 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -U "yt-dlp[default,curl-cffi]" yt-dlp-ejs --pre requests pillow opencv-python-headless
           yt-dlp --update-to nightly
-          yt-dlp --version
 
       - name: Setup Rclone
         uses: AnimMouse/setup-rclone@v1
         with:
           rclone_config: ${{ secrets.RCLONE_CONF }}
 
-      - name: Smart Download Media (yt-dlp for YouTube, API for Pixeldrain)
+      - name: Process Individual Task (Parallel Matrix)
         run: |
           WORK_ID="job_${{ strategy.job-index }}_$RANDOM"
           mkdir -p "input/$WORK_ID" "sub/$WORK_ID" "desc/$WORK_ID"
-          URL="${{ matrix.url }}"
+          TASK="${{ matrix.task }}"
           EPOCH_TIME=$(date +%s)
           
-          if [[ "$URL" == *"pixeldrain.com/u/"* ]]; then
-            echo "Detected Pixeldrain link, processing via external handler..."
-            export TARGET_URL="$URL"
+          if [[ "$TASK" == "pixeldrain-sub__"* ]]; then
+            echo "Detected sub-file extraction from Pixeldrain archive..."
+            export TASK_STRING="$TASK"
+            export WORK_DIR="input/$WORK_ID"
+            export EPOCH_TIME="$EPOCH_TIME"
+            python3 pixeldrain_sub_handler.py
+          elif [[ "$TASK" == *"pixeldrain.com/u/"* ]]; then
+            export TARGET_URL="$TASK"
             export WORK_DIR="input/$WORK_ID"
             export EPOCH_TIME="$EPOCH_TIME"
             python3 pixeldrain_handler.py
           else
+            URL="$TASK"
             FILENAME_TEMPLATE="%(title).50s_id-%(id)s_time-%(epoch)s.%(ext)s"
             
             yt-dlp --js-runtimes node \
