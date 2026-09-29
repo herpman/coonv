@@ -1,20 +1,119 @@
-# Deteksi apakah URL adalah Pixeldrain
+name: Download and Convert Media and Zip
+
+on:
+  workflow_dispatch:
+    inputs:
+      FPS:
+        description: 'FPS (e.g., source, 24)'
+        required: false
+        default: 'source'
+      RESOLUTION:
+        description: 'Resolution (e.g., source, 1280:-2)'
+        required: false
+        default: 'source'
+      CRF:
+        description: 'Constant Rate Factor'
+        required: false
+        default: '29.5'
+      DEBLOCK:
+        description: 'Deblock settings (e.g., 0:0)'
+        required: false
+        default: '0:0'
+      RD:
+        description: 'RD value'
+        required: false
+        default: '6'
+      PSY_RD:
+        description: 'Psy-RD value'
+        required: false
+        default: '1.00'
+      AQ_MODE:
+        description: 'AQ Mode (e.g., 2)'
+        required: false
+        default: '2'
+      AQ_STRENGTH:
+        description: 'AQ Strength'
+        required: false
+        default: '1.00'
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Disable man-db auto-update
+        run: |
+          echo 'set man-db/auto-update false' | sudo debconf-communicate
+          sudo dpkg-reconfigure man-db
+
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Read URLs and set matrix
+        id: set-matrix
+        run: |
+          urls=$(cat yt_urls.txt | grep -v '^#' | awk NF | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "matrix=$urls"
+          echo "matrix=$urls" >> $GITHUB_OUTPUT
+
+  convert:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        url: ${{fromJson(needs.prepare.outputs.matrix)}}
+      fail-fast: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install dependencies & tools
+        run: |
+          sudo apt-get purge -y man-db
+          sudo apt-get update
+          sudo apt-get install -y nodejs npm jq python3 python3-pip p7zip-full unrar
+          
+          # Install FFmpeg & FFprobe static
+          curl -L "https://www.dropbox.com/scl/fi/bdioefcl1dce4zs7iqqr6/ffmpeg-release-amd64-static.tar.xz?rlkey=npbqixqrbarhmuymm4ps5em45&dl=1" -o "ffmpeg.tar.xz"
+          tar -xf ffmpeg.tar.xz
+          sudo mv ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/
+          sudo chmod +x /usr/local/bin/ffmpeg
+          
+          curl -L "https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v6.1/ffprobe-6.1-linux-64.zip" -o "./ffprobe-6.1-linux-64.zip"
+          7z x ./ffprobe-6.1-linux-64.zip
+          sudo chmod +x ./ffprobe
+          sudo mv ./ffprobe /usr/local/bin/ffprobe
+          
+          python -m pip install --upgrade pip
+          python -m pip install -U "yt-dlp[default,curl-cffi]" yt-dlp-ejs --pre
+          yt-dlp --update-to nightly
+          yt-dlp --version
+
+      - name: Setup Rclone
+        uses: AnimMouse/setup-rclone@v1
+        with:
+          rclone_config: ${{ secrets.RCLONE_CONF }}
+
+      - name: Download and Handle Media (YouTube, Pixeldrain, or Archive)
+        run: |
+          WORK_ID="job_${{ strategy.job-index }}_$RANDOM"
+          mkdir -p "input/$WORK_ID" "sub/$WORK_ID" "desc/$WORK_ID"
+          URL="${{ matrix.url }}"
+          
+          # Deteksi apakah URL adalah Pixeldrain
           if [[ "$URL" =~ pixeldrain\.com/u/([a-zA-Z0-9]+) ]]; then
             FILE_ID="${BASH_REMATCH[1]}"
             echo "Detected Pixeldrain link. Converting to direct API download..."
             URL="https://pixeldrain.com/api/file/$FILE_ID"
           fi
 
-          # Deteksi apakah URL adalah file arsip langsung ATAU dari Pixeldrain (karena biasanya berupa zip/video)
+          # Deteksi apakah URL adalah file arsip langsung ATAU dari Pixeldrain
           if [[ "$URL" =~ \.(zip|rar|7z|tar|gz|bz2|xz)$ ]] || [[ "$URL" =~ pixeldrain\.com/api/file/ ]]; then
             echo "Downloading file/archive from direct link..."
-            ARCHIVE_NAME="downloaded_media_${RANDOM}.zip" # Default name, curl akan menyimpan sesuai file
-            
-            # Gunakan -O atau -J agar curl menyimpan dengan nama asli dari server
             curl -L -O -J "$URL"
             
-            # Cari file yang baru saja di-download (bisa berupa arsip atau langsung video)
-            # Lalu pindahkan atau ekstrak jika itu arsip
             for downloaded_file in *; do
               if [[ "$downloaded_file" =~ \.(zip|rar|7z|tar|gz|bz2|xz)$ ]]; then
                 echo "Extracting archive: $downloaded_file"
@@ -24,12 +123,51 @@
                 find "input/$WORK_ID/extracted" -type f \( -name "*.mp4" -o -name "*.mkv" -o -name "*.avi" -o -name "*.mov" -o -name "*.webm" -o -name "*.flv" \) -exec mv {} "input/$WORK_ID/" \;
                 rm -rf "input/$WORK_ID/extracted"
               elif [[ "$downloaded_file" =~ \.(mp4|mkv|avi|mov|webm|flv)$ ]]; then
-                echo "Direct video file detected from Pixeldrain, moving to input..."
+                echo "Direct video file detected, moving to input..."
                 mv "$downloaded_file" "input/$WORK_ID/"
               fi
             done
-          
           else
             echo "Detected video link (YouTube/Streaming). Using yt-dlp..."
-            # ... (kode yt-dlp tetap seperti sebelumnya) ...
+            FILENAME_TEMPLATE="%(title).50s_id-%(id)s_time-%(epoch)s.%(ext)s"
+            
+            yt-dlp --js-runtimes node \
+                   --extractor-args "generic:impersonate;youtube:player_client=web_embedded" \
+                   --fragment-retries 5 --concurrent-fragments 1 \
+                   --cookies youtube_cookies.txt \
+                   --no-playlist -t sleep --restrict-filenames \
+                   --hls-use-mpegts --no-abort-on-error \
+                   -o "$FILENAME_TEMPLATE" \
+                   -f "bv*[vcodec^=avc1]+ba/b / best" \
+                   -P "input/$WORK_ID" "$URL" || true
+            
+            yt-dlp --js-runtimes node --fragment-retries 5 --concurrent-fragments 5 --cookies youtube_cookies.txt --no-playlist -t sleep --skip-download --restrict-filenames -o "$FILENAME_TEMPLATE" --write-sub --write-auto-sub --sub-lang en --convert-subs srt -P "sub/$WORK_ID" "$URL" || true
+            yt-dlp --js-runtimes node --fragment-retries 5 --concurrent-fragments 5 --cookies youtube_cookies.txt --no-playlist -t sleep --skip-download --restrict-filenames -o "$FILENAME_TEMPLATE" --write-thumbnail --write-description --convert-thumbnails jpg -P "desc/$WORK_ID" "$URL" || true
+            
+            find "desc/$WORK_ID" -type f -name "*.description" -exec bash -c 'mv "$0" "${0%.description}.txt"' {} \;
           fi
+          
+          # Pindahkan file dari folder isolasi sementara ke folder utama
+          mv input/$WORK_ID/* input/ 2>/dev/null || true
+          mv sub/$WORK_ID/* sub/ 2>/dev/null || true
+          mv desc/$WORK_ID/* desc/ 2>/dev/null || true
+          
+          rclone copy ./sub HerpDrive:Here/YTout/sub || true
+          rclone copy ./desc HerpDrive:Here/YTout/desc || true
+
+      - name: Run conversion (Parallel Support)
+        run: |
+          mkdir -p scripts 
+          rclone copy DBOX:scripts ./scripts
+          chmod +x ./scripts/convert_media.sh
+          ./scripts/convert_media.sh
+        env:
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+          FPS: ${{ github.event.inputs.FPS }}
+          RESOLUTION: ${{ github.event.inputs.RESOLUTION }}
+          CRF: ${{ github.event.inputs.CRF }}
+          DEBLOCK: ${{ github.event.inputs.DEBLOCK }}
+          RD: ${{ github.event.inputs.RD }}
+          PSY_RD: ${{ github.event.inputs.PSY_RD }}
+          AQ_MODE: ${{ github.event.inputs.AQ_MODE }}
+          AQ_STRENGTH: ${{ github.event.inputs.AQ_STRENGTH }}
