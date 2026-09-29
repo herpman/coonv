@@ -46,7 +46,9 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Set up Python & Dependencies
-        run: pip install requests p7zip-full
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-requests p7zip-full unzip
 
       - name: Expand URLs and build parallel matrix
         id: set-matrix
