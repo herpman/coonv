@@ -1,4 +1,4 @@
-name: Download and Convert Media and Zip
+name: Download and Convert Media
 
 on:
   workflow_dispatch:
@@ -42,11 +42,6 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      - name: Disable man-db auto-update
-        run: |
-          echo 'set man-db/auto-update false' | sudo debconf-communicate
-          sudo dpkg-reconfigure man-db
-
       - name: Checkout
         uses: actions/checkout@v5
 
@@ -89,17 +84,16 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -U "yt-dlp[default,curl-cffi]" yt-dlp-ejs --pre
           yt-dlp --update-to nightly
-          yt-dlp --version
 
       - name: Setup Rclone
         uses: AnimMouse/setup-rclone@v1
         with:
           rclone_config: ${{ secrets.RCLONE_CONF }}
 
-      - name: Download and Handle Media (YouTube, Pixeldrain, or Archive)
+      - name: Download, Extract & Parallel Convert Media
         run: |
           WORK_ID="job_${{ strategy.job-index }}_$RANDOM"
-          mkdir -p "input/$WORK_ID" "sub/$WORK_ID" "desc/$WORK_ID"
+          mkdir -p "input/$WORK_ID" "output/$WORK_ID" "sub/$WORK_ID" "desc/$WORK_ID"
           URL="${{ matrix.url }}"
           
           # Deteksi apakah URL adalah Pixeldrain
@@ -109,7 +103,7 @@ jobs:
             URL="https://pixeldrain.com/api/file/$FILE_ID"
           fi
 
-          # Deteksi apakah URL adalah file arsip langsung ATAU dari Pixeldrain
+          # 1. DOWNLOAD & EXTRACT PROCESS
           if [[ "$URL" =~ \.(zip|rar|7z|tar|gz|bz2|xz)$ ]] || [[ "$URL" =~ pixeldrain\.com/api/file/ ]]; then
             echo "Downloading file/archive from direct link..."
             curl -L -O -J "$URL"
@@ -120,10 +114,10 @@ jobs:
                 7z x "$downloaded_file" -o"input/$WORK_ID/extracted" || unrar x "$downloaded_file" "input/$WORK_ID/extracted" || true
                 rm -f "$downloaded_file"
                 
+                # Pindahkan semua video hasil ekstrak ke folder input/$WORK_ID
                 find "input/$WORK_ID/extracted" -type f \( -name "*.mp4" -o -name "*.mkv" -o -name "*.avi" -o -name "*.mov" -o -name "*.webm" -o -name "*.flv" \) -exec mv {} "input/$WORK_ID/" \;
                 rm -rf "input/$WORK_ID/extracted"
               elif [[ "$downloaded_file" =~ \.(mp4|mkv|avi|mov|webm|flv)$ ]]; then
-                echo "Direct video file detected, moving to input..."
                 mv "$downloaded_file" "input/$WORK_ID/"
               fi
             done
@@ -145,29 +139,35 @@ jobs:
             yt-dlp --js-runtimes node --fragment-retries 5 --concurrent-fragments 5 --cookies youtube_cookies.txt --no-playlist -t sleep --skip-download --restrict-filenames -o "$FILENAME_TEMPLATE" --write-thumbnail --write-description --convert-thumbnails jpg -P "desc/$WORK_ID" "$URL" || true
             
             find "desc/$WORK_ID" -type f -name "*.description" -exec bash -c 'mv "$0" "${0%.description}.txt"' {} \;
+            
+            rclone copy ./sub HerpDrive:Here/YTout/sub || true
+            rclone copy ./desc HerpDrive:Here/YTout/desc || true
           fi
-          
-          # Pindahkan file dari folder isolasi sementara ke folder utama
-          mv input/$WORK_ID/* input/ 2>/dev/null || true
-          mv sub/$WORK_ID/* sub/ 2>/dev/null || true
-          mv desc/$WORK_ID/* desc/ 2>/dev/null || true
-          
-          rclone copy ./sub HerpDrive:Here/YTout/sub || true
-          rclone copy ./desc HerpDrive:Here/YTout/desc || true
 
-      - name: Run conversion (Parallel Support)
-        run: |
-          mkdir -p scripts 
-          rclone copy DBOX:scripts ./scripts
-          chmod +x ./scripts/convert_media.sh
-          ./scripts/convert_media.sh
-        env:
-          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
-          FPS: ${{ github.event.inputs.FPS }}
-          RESOLUTION: ${{ github.event.inputs.RESOLUTION }}
-          CRF: ${{ github.event.inputs.CRF }}
-          DEBLOCK: ${{ github.event.inputs.DEBLOCK }}
-          RD: ${{ github.event.inputs.RD }}
-          PSY_RD: ${{ github.event.inputs.PSY_RD }}
-          AQ_MODE: ${{ github.event.inputs.AQ_MODE }}
-          AQ_STRENGTH: ${{ github.event.inputs.AQ_STRENGTH }}
+          # 2. PARALLEL CONVERSION PROCESS (Langsung di Workflow)
+          echo "Memulai konversi paralel untuk semua file di folder input/$WORK_ID..."
+          
+          for file in input/$WORK_ID/*; do
+            if [ -f "$file" ]; then
+              (
+                filename=$(basename "$file")
+                name_no_ext="${filename%.*}"
+                echo ">>> Proses paralel dimulai untuk: $filename"
+                
+                # Masukkan perintah ffmpeg Anda di sini menggunakan variabel input GitHub Actions
+                ffmpeg -y -i "$file" \
+                  -c:v libx264 -crf "${{ github.event.inputs.CRF }}" \
+                  -c:a aac -b:a 128k \
+                  "output/$WORK_ID/${name_no_ext}_converted.mp4"
+                  
+                echo "<<< Selesai: $filename"
+              ) &
+            fi
+          done
+          
+          # Tunggu semua proses paralel selesai
+          wait
+          echo "Semua file dalam arsip telah selesai dikonversi secara paralel!"
+
+          # (Opsional) Upload hasil konversi ke cloud via rclone jika diperlukan
+          # rclone copy output/$WORK_ID HerpDrive:Here/YTout/output/ || true
