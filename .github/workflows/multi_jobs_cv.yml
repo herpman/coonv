@@ -102,7 +102,7 @@ jobs:
             fi
           done
 
-          # Buat JSON array daftar nama file video khusus untuk matrix (subtitle akan ikut terbawa atau ditangani oleh script konversi)
+          # Buat JSON array daftar nama file video khusus untuk matrix
           files_json=$(find raw_videos -type f -maxdepth 1 \( -name "*.mp4" -o -name "*.mkv" -o -name "*.avi" -o -name "*.mov" -o -name "*.webm" -o -name "*.flv" \) -printf '%f\n' | jq -R -s -c 'split("\n") | map(select(length > 0))')
           
           echo "Generated Matrix: $files_json"
@@ -132,10 +132,6 @@ jobs:
         with:
           rclone_config: ${{ secrets.RCLONE_CONF }}
 
-      - name: Download Artifact & Run Conversion
-        run: |
-          mkdir -p input output scripts raw_files
-        
       - name: Download Artifact Files
         uses: actions/download-artifact@v4
         with:
@@ -144,11 +140,18 @@ jobs:
 
       - name: Move Specific File & Subtitle, Then Run Script
         run: |
-          # Pindahkan file video utama milik runner ini ke folder input/
-          mv "raw_files/${{ matrix.filename }}" "input/${{ matrix.filename }}"
+          # Simpan nilai matrix ke variabel bash biasa agar aman dari parser GitHub Actions
+          FILENAME="${{ matrix.filename }}"
           
-          # Jika ada file subtitle eksternal (.srt / .ass) dengan nama dasar yang sama, pindahkan juga ke input/
-          base_name="${{ matrix.filename%.* }}"
+          mkdir -p input output scripts
+          
+          # Pindahkan file video utama milik runner ini ke folder input/
+          mv "raw_files/$FILENAME" "input/$FILENAME"
+          
+          # Ambil nama dasar tanpa ekstensi menggunakan bash standard
+          base_name="${FILENAME%.*}"
+          
+          # Jika ada file subtitle eksternal (.srt / .ass) dengan nama yang sama, pindahkan juga ke input/
           if [ -f "raw_files/$base_name.srt" ]; then
             mv "raw_files/$base_name.srt" "input/"
             echo "Found external subtitle: $base_name.srt"
@@ -159,7 +162,6 @@ jobs:
           fi
           
           # Download script konversi dari Dropbox
-          mkdir -p scripts
           rclone copy DBOX:scripts ./scripts
           chmod +x ./scripts/convert_media.sh
           
