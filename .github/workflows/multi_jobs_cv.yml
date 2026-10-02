@@ -57,29 +57,43 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq p7zip-full unrar megatools
           
-          mkdir -p raw_videos
+          mkdir -p raw_videos downloads_temp
+          cd downloads_temp
           
-          # Baca baris pertama untuk identifikasi jenis link
-          FIRST_URL=$(grep -v '^#' yt_urls.txt | awk NF | head -n 1)
+          # Baca baris pertama yt_urls.txt
+          FIRST_URL=$(grep -v '^#' ../yt_urls.txt | awk NF | head -n 1)
           
-          # Deteksi apakah ini link arsip (zip/rar/7z atau file arsip MEGA/Pixeldrain)
-          if [[ "$FIRST_URL" =~ \.(zip|rar|7z|tar|gz|bz2|xz)($|\?) ]] || [[ "$FIRST_URL" =~ (archive|zip|rar) ]]; then
-            echo "is_archive=true" >> $GITHUB_OUTPUT
-            echo "Detected Archive link. Downloading..."
-            
-            if [[ "$FIRST_URL" =~ mega\.nz ]]; then
-              megadl "$FIRST_URL" --path .
-            elif [[ "$FIRST_URL" =~ pixeldrain\.com/u/([a-zA-Z0-9]+) ]]; then
-              FILE_ID="${BASH_REMATCH[1]}"
-              curl -L -O -J "https://pixeldrain.com/api/file/$FILE_ID"
-            else
-              curl -L -O -J "$FIRST_URL"
+          # Download file pertama ke folder temporary
+          if [[ "$FIRST_URL" =~ mega\.nz ]]; then
+            megadl "$FIRST_URL" --path .
+          elif [[ "$FIRST_URL" =~ pixeldrain\.com/u/([a-zA-Z0-9]+) ]]; then
+            FILE_ID="${BASH_REMATCH[1]}"
+            curl -L -O -J "https://pixeldrain.com/api/file/$FILE_ID"
+          else
+            curl -L -O -J "$FIRST_URL" || true
+          fi
+          
+          # Cek file apa yang baru saja didownload
+          IS_ARCHIVE_FILE=false
+          for downloaded_file in *; do
+            if [[ "$downloaded_file" =~ \.(zip|rar|7z|tar|gz|bz2|xz)$ ]]; then
+              IS_ARCHIVE_FILE=true
+              break
             fi
+          done
+          
+          cd ..
+          
+          if [ "$IS_ARCHIVE_FILE" = true ]; then
+            echo "is_archive=true" >> $GITHUB_OUTPUT
+            echo "Detected Archive file! Extracting..."
             
-            # Ekstrak arsip
+            # Pindahkan file arsip ke root workspace untuk diekstrak
+            mv downloads_temp/* .
+            rm -rf downloads_temp
+            
             for downloaded_file in *; do
               if [[ "$downloaded_file" =~ \.(zip|rar|7z|tar|gz|bz2|xz)$ ]]; then
-                echo "Extracting archive..."
                 7z x "$downloaded_file" -o"extracted_temp" || unrar x "$downloaded_file" "extracted_temp" || true
                 rm -f "$downloaded_file"
                 
@@ -94,7 +108,8 @@ jobs:
             
           else
             echo "is_archive=false" >> $GITHUB_OUTPUT
-            echo "Detected Direct Video/YouTube links. Generating URL matrix..."
+            echo "Detected Direct Video/YouTube links. Cleaning temp and generating URL matrix..."
+            rm -rf downloads_temp raw_videos
             
             urls_json=$(grep -v '^#' yt_urls.txt | awk NF | jq -R -s -c 'split("\n") | map(select(length > 0))')
             echo "matrix=$urls_json" >> $GITHUB_OUTPUT
