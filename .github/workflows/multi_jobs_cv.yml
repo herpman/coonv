@@ -58,38 +58,43 @@ jobs:
           
           mkdir -p raw_videos
           
-          # Baca link dari yt_urls.txt
-          URL=$(cat yt_urls.txt | grep -v '^#' | awk NF | head -n 1)
-          
-          # Deteksi link MEGA
-          if [[ "$URL" =~ mega\.nz ]]; then
-            echo "Detected MEGA link. Downloading..."
-            megadl "$URL" --path .
-          # Deteksi link Pixeldrain
-          elif [[ "$URL" =~ pixeldrain\.com/u/([a-zA-Z0-9]+) ]]; then
-            FILE_ID="${BASH_REMATCH[1]}"
-            URL="https://pixeldrain.com/api/file/$FILE_ID"
-            curl -L -O -J "$URL"
-          else
-            # Asumsi link YouTube atau direct link biasa menggunakan yt-dlp
-            sudo apt-get install -y nodejs npm python3 python3-pip
-            python -m pip install -U "yt-dlp[default,curl-cffi]" yt-dlp-ejs --pre
-            yt-dlp --update-to nightly
+          # Baca semua link dari yt_urls.txt (abaikan baris kosong atau komentar #)
+          while IFS= read -r URL; do
+            [[ -z "$URL" || "$URL" =~ ^# ]] && continue
+            echo "Processing link: $URL"
             
-            FILENAME_TEMPLATE="%(title).50s_id-%(id)s.%(ext)s"
-            yt-dlp --js-runtimes node \
-                   --extractor-args "generic:impersonate;youtube:player_client=web_embedded" \
-                   --cookies youtube_cookies.txt \
-                   --no-playlist --restrict-filenames \
-                   -o "$FILENAME_TEMPLATE" \
-                   -f "bv*[vcodec^=avc1]+ba/b / best" \
-                   -P "raw_videos" "$URL" || true
-          fi
+            # Deteksi link MEGA
+            if [[ "$URL" =~ mega\.nz ]]; then
+              echo "Detected MEGA link. Downloading..."
+              megadl "$URL" --path .
+            # Deteksi link Pixeldrain
+            elif [[ "$URL" =~ pixeldrain\.com/u/([a-zA-Z0-9]+) ]]; then
+              FILE_ID="${BASH_REMATCH[1]}"
+              PD_URL="https://pixeldrain.com/api/file/$FILE_ID"
+              curl -L -O -J "$PD_URL"
+            else
+              # Asumsi link YouTube atau direct link biasa menggunakan yt-dlp
+              if ! command -v yt-dlp &> /dev/null; then
+                sudo apt-get install -y nodejs npm python3 python3-pip
+                python -m pip install -U "yt-dlp[default,curl-cffi]" yt-dlp-ejs --pre
+                yt-dlp --update-to nightly
+              fi
+              
+              FILENAME_TEMPLATE="%(title).50s_id-%(id)s.%(ext)s"
+              yt-dlp --js-runtimes node \
+                     --extractor-args "generic:impersonate;youtube:player_client=web_embedded" \
+                     --cookies youtube_cookies.txt \
+                     --no-playlist --restrict-filenames \
+                     -o "$FILENAME_TEMPLATE" \
+                     -f "bv*[vcodec^=avc1]+ba/b / best" \
+                     -P "raw_videos" "$URL" || true
+            fi
+          done < <(grep -v '^#' yt_urls.txt | awk NF)
 
-          # Cek apakah hasil download berupa arsip (zip/rar/dll) atau langsung video / subtitle
+          # Cek seluruh file yang baru didownload: jika arsip, ekstrak; jika video/sub, pindahkan
           for downloaded_file in *; do
             if [[ "$downloaded_file" =~ \.(zip|rar|7z|tar|gz|bz2|xz)$ ]]; then
-              echo "Found archive. Extracting..."
+              echo "Found archive: $downloaded_file. Extracting..."
               7z x "$downloaded_file" -o"extracted_temp" || unrar x "$downloaded_file" "extracted_temp" || true
               rm -f "$downloaded_file"
               
