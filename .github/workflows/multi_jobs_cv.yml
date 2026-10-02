@@ -1,4 +1,4 @@
-name: Download and Convert Media (Multi-Jobs Matrix)
+name: Smart Media Pipeline (Archive vs Direct Links)
 
 on:
   workflow_dispatch:
@@ -41,6 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
+      is_archive: ${{ steps.set-matrix.outputs.is_archive }}
     steps:
       - name: Disable man-db auto-update
         run: |
@@ -50,7 +51,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Download, Extract / Direct Process & Generate Matrix
+      - name: Detect Type & Generate Matrix
         id: set-matrix
         run: |
           sudo apt-get update
@@ -58,62 +59,49 @@ jobs:
           
           mkdir -p raw_videos
           
-          # Baca semua link dari yt_urls.txt (abaikan baris kosong atau komentar #)
-          while IFS= read -r URL; do
-            [[ -z "$URL" || "$URL" =~ ^# ]] && continue
-            echo "Processing link: $URL"
-            
-            # Deteksi link MEGA
-            if [[ "$URL" =~ mega\.nz ]]; then
-              echo "Detected MEGA link. Downloading..."
-              megadl "$URL" --path .
-            # Deteksi link Pixeldrain
-            elif [[ "$URL" =~ pixeldrain\.com/u/([a-zA-Z0-9]+) ]]; then
-              FILE_ID="${BASH_REMATCH[1]}"
-              PD_URL="https://pixeldrain.com/api/file/$FILE_ID"
-              curl -L -O -J "$PD_URL"
-            else
-              # Asumsi link YouTube atau direct link biasa menggunakan yt-dlp
-              if ! command -v yt-dlp &> /dev/null; then
-                sudo apt-get install -y nodejs npm python3 python3-pip
-                python -m pip install -U "yt-dlp[default,curl-cffi]" yt-dlp-ejs --pre
-                yt-dlp --update-to nightly
-              fi
-              
-              FILENAME_TEMPLATE="%(title).50s_id-%(id)s.%(ext)s"
-              yt-dlp --js-runtimes node \
-                     --extractor-args "generic:impersonate;youtube:player_client=web_embedded" \
-                     --cookies youtube_cookies.txt \
-                     --no-playlist --restrict-filenames \
-                     -o "$FILENAME_TEMPLATE" \
-                     -f "bv*[vcodec^=avc1]+ba/b / best" \
-                     -P "raw_videos" "$URL" || true
-            fi
-          done < <(grep -v '^#' yt_urls.txt | awk NF)
-
-          # Cek seluruh file yang baru didownload: jika arsip, ekstrak; jika video/sub, pindahkan
-          for downloaded_file in *; do
-            if [[ "$downloaded_file" =~ \.(zip|rar|7z|tar|gz|bz2|xz)$ ]]; then
-              echo "Found archive: $downloaded_file. Extracting..."
-              7z x "$downloaded_file" -o"extracted_temp" || unrar x "$downloaded_file" "extracted_temp" || true
-              rm -f "$downloaded_file"
-              
-              # Pindahkan video dan subtitle ke raw_videos
-              find "extracted_temp" -type f \( -name "*.mp4" -o -name "*.mkv" -o -name "*.avi" -o -name "*.mov" -o -name "*.webm" -o -name "*.flv" -o -name "*.srt" -o -name "*.ass" \) -exec mv {} raw_videos/ \;
-              rm -rf "extracted_temp"
-            elif [[ "$downloaded_file" =~ \.(mp4|mkv|avi|mov|webm|flv|srt|ass)$ ]]; then
-              # Jika langsung file video/subtitle satuan
-              mv "$downloaded_file" raw_videos/
-            fi
-          done
-
-          # Buat JSON array daftar nama file video khusus untuk matrix
-          files_json=$(find raw_videos -type f -maxdepth 1 \( -name "*.mp4" -o -name "*.mkv" -o -name "*.avi" -o -name "*.mov" -o -name "*.webm" -o -name "*.flv" \) -printf '%f\n' | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          # Baca baris pertama untuk identifikasi jenis link
+          FIRST_URL=$(grep -v '^#' yt_urls.txt | awk NF | head -n 1)
           
-          echo "Generated Matrix: $files_json"
-          echo "matrix=$files_json" >> $GITHUB_OUTPUT
+          # Deteksi apakah ini link arsip (zip/rar/7z atau file arsip MEGA/Pixeldrain)
+          if [[ "$FIRST_URL" =~ \.(zip|rar|7z|tar|gz|bz2|xz)($|\?) ]] || [[ "$FIRST_URL" =~ (archive|zip|rar) ]]; then
+            echo "is_archive=true" >> $GITHUB_OUTPUT
+            echo "Detected Archive link. Downloading..."
+            
+            if [[ "$FIRST_URL" =~ mega\.nz ]]; then
+              megadl "$FIRST_URL" --path .
+            elif [[ "$FIRST_URL" =~ pixeldrain\.com/u/([a-zA-Z0-9]+) ]]; then
+              FILE_ID="${BASH_REMATCH[1]}"
+              curl -L -O -J "https://pixeldrain.com/api/file/$FILE_ID"
+            else
+              curl -L -O -J "$FIRST_URL"
+            fi
+            
+            # Ekstrak arsip
+            for downloaded_file in *; do
+              if [[ "$downloaded_file" =~ \.(zip|rar|7z|tar|gz|bz2|xz)$ ]]; then
+                echo "Extracting archive..."
+                7z x "$downloaded_file" -o"extracted_temp" || unrar x "$downloaded_file" "extracted_temp" || true
+                rm -f "$downloaded_file"
+                
+                find "extracted_temp" -type f \( -name "*.mp4" -o -name "*.mkv" -o -name "*.avi" -o -name "*.mov" -o -name "*.webm" -o -name "*.flv" -o -name "*.srt" -o -name "*.ass" \) -exec mv {} raw_videos/ \;
+                rm -rf "extracted_temp"
+              fi
+            done
+            
+            # Buat Matrix JSON dari nama file hasil ekstrak
+            files_json=$(find raw_videos -type f -maxdepth 1 \( -name "*.mp4" -o -name "*.mkv" -o -name "*.avi" -o -name "*.mov" -o -name "*.webm" -o -name "*.flv" \) -printf '%f\n' | jq -R -s -c 'split("\n") | map(select(length > 0))')
+            echo "matrix=$files_json" >> $GITHUB_OUTPUT
+            
+          else
+            echo "is_archive=false" >> $GITHUB_OUTPUT
+            echo "Detected Direct Video/YouTube links. Generating URL matrix..."
+            
+            urls_json=$(grep -v '^#' yt_urls.txt | awk NF | jq -R -s -c 'split("\n") | map(select(length > 0))')
+            echo "matrix=$urls_json" >> $GITHUB_OUTPUT
+          fi
 
-      - name: Upload Raw Files Artifact
+      - name: Upload Raw Files Artifact (Only if Archive)
+        if: steps.set-matrix.outputs.is_archive == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: raw-files-artifact
@@ -125,7 +113,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        filename: ${{fromJson(needs.prepare-matrix.outputs.matrix)}}
+        item: ${{fromJson(needs.prepare-matrix.outputs.matrix)}}
       fail-fast: false
 
     steps:
@@ -137,40 +125,75 @@ jobs:
         with:
           rclone_config: ${{ secrets.RCLONE_CONF }}
 
-      - name: Download Artifact Files
+      - name: Download Artifact (If Archive Mode)
+        if: needs.prepare-matrix.outputs.is_archive == 'true'
         uses: actions/download-artifact@v4
         with:
           name: raw-files-artifact
           path: raw_files
 
-      - name: Move Specific File & Subtitle, Then Run Script
+      - name: Process Media (Convert & Sync)
         run: |
-          # Simpan nilai matrix ke variabel bash biasa agar aman dari parser GitHub Actions
-          FILENAME="${{ matrix.filename }}"
+          IS_ARCHIVE="${{ needs.prepare-matrix.outputs.is_archive }}"
+          ITEM="${{ matrix.item }}"
           
-          mkdir -p input output scripts
+          mkdir -p input output scripts raw_videos
           
-          # Pindahkan file video utama milik runner ini ke folder input/
-          mv "raw_files/$FILENAME" "input/$FILENAME"
-          
-          # Ambil nama dasar tanpa ekstensi menggunakan bash standard
-          base_name="${FILENAME%.*}"
-          
-          # Jika ada file subtitle eksternal (.srt / .ass) dengan nama yang sama, pindahkan juga ke input/
-          if [ -f "raw_files/$base_name.srt" ]; then
-            mv "raw_files/$base_name.srt" "input/"
-            echo "Found external subtitle: $base_name.srt"
+          if [ "$IS_ARCHIVE" == "true" ]; then
+            # Mode Arsip: Ambil file video dari artifact
+            FILENAME="$ITEM"
+            mv "raw_files/$FILENAME" "input/$FILENAME"
+            
+            base_name="${FILENAME%.*}"
+            if [ -f "raw_files/$base_name.srt" ]; then
+              mv "raw_files/$base_name.srt" "input/"
+            fi
+            if [ -f "raw_files/$base_name.ass" ]; then
+              mv "raw_files/$base_name.ass" "input/"
+            fi
+          else
+            # Mode Direct Link: Download langsung file videonya di runner masing-masing tanpa artifact
+            TARGET_URL="$ITEM"
+            echo "Downloading media from URL: $TARGET_URL"
+            
+            sudo apt-get update
+            sudo apt-get install -y megatools
+            
+            if [[ "$TARGET_URL" =~ mega\.nz ]]; then
+              megadl "$TARGET_URL" --path .
+            elif [[ "$TARGET_URL" =~ pixeldrain\.com/u/([a-zA-Z0-9]+) ]]; then
+              FILE_ID="${BASH_REMATCH[1]}"
+              curl -L -O -J "https://pixeldrain.com/api/file/$FILE_ID"
+            else
+              sudo apt-get install -y nodejs npm python3 python3-pip
+              python -m pip install -U "yt-dlp[default,curl-cffi]" yt-dlp-ejs --pre
+              yt-dlp --update-to nightly
+              
+              FILENAME_TEMPLATE="%(title).50s_id-%(id)s.%(ext)s"
+              yt-dlp --js-runtimes node \
+                     --extractor-args "generic:impersonate;youtube:player_client=web_embedded" \
+                     --cookies youtube_cookies.txt \
+                     --no-playlist --restrict-filenames \
+                     -o "$FILENAME_TEMPLATE" \
+                     -f "bv*[vcodec^=avc1]+ba/b / best" \
+                     -P "raw_videos" "$TARGET_URL" || true
+            fi
+            
+            # Pindahkan file hasil download ke folder input/
+            for downloaded_file in *; do
+              if [[ "$downloaded_file" =~ \.(mp4|mkv|avi|mov|webm|flv|srt|ass)$ ]]; then
+                mv "$downloaded_file" input/
+              fi
+            done
+            if [ -d "raw_videos" ]; then
+              mv raw_videos/* input/ 2>/dev/null || true
+              rmdir raw_videos 2>/dev/null || true
+            fi
           fi
-          if [ -f "raw_files/$base_name.ass" ]; then
-            mv "raw_files/$base_name.ass" "input/"
-            echo "Found external subtitle: $base_name.ass"
-          fi
           
-          # Download script konversi dari Dropbox
+          # Download dan jalankan script konversi dari Dropbox
           rclone copy DBOX:scripts ./scripts
           chmod +x ./scripts/convert_media.sh
-          
-          # Jalankan script konversi
           ./scripts/convert_media.sh
         env:
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
