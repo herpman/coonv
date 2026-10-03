@@ -51,64 +51,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Detect Type & Generate Matrix
+      - name: Generate URL Matrix Instantly
         id: set-matrix
         run: |
-          mkdir -p raw_videos downloads_temp
-          cd downloads_temp
-          
           sudo apt-get update -y || true
-          sudo apt-get install -y jq p7zip-full unrar megatools python3-pip libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libdbus-1-3 libexpat1 libfontconfig1 libgbm1 libglib2.0-0 libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext1 libxfixes1 libxi6 libxrandr2 libxrender1 libxss1 libxtst1 xdg-utils || true
-          
-          python3 -m pip install --upgrade pip || true
-          python3 -m pip install -U "yt-dlp[default]" playwright requests || true
-          python3 -m playwright install chromium || true
-          
-          FIRST_URL=$(grep -v '^#' ../yt_urls.txt | awk NF | head -n 1)
-          echo "Testing DTube URL via Playwright Sniffer: $FIRST_URL"
-          
-          python3 -c "
-          import asyncio, subprocess, os
-          from playwright.async_api import async_playwright
-          
-          async def run():
-              async with async_playwright() as p:
-                  browser = await p.chromium.launch(headless=True)
-                  page = await browser.new_page()
-                  target_url = '$FIRST_URL'
-                  captured_video = []
-                  
-                  def handle_request(request):
-                      url = request.url
-                      if any(ext in url for ext in ['.mp4', '.ts', '.m3u8', 'ipfs']) and 'googletagmanager' not in url:
-                          if url not in captured_video:
-                              captured_video.append(url)
-                              print('Intercepted media URL:', url)
-                              
-                  page.on('request', handle_request)
-                  try:
-                      await page.goto(target_url, timeout=60000)
-                      await page.wait_for_timeout(10000)
-                  except Exception as e:
-                      print('Navigation error:', e)
-                  await browser.close()
-                  
-                  if captured_video:
-                      download_target = captured_video[0]
-                      for v in captured_video:
-                          if 'playlist.m3u8' in v:
-                              download_target = v
-                              break
-                      print('Downloading HLS stream via yt-dlp:', download_target)
-                      try:
-                          subprocess.run(['yt-dlp', download_target, '-o', 'dtube_file.mp4'], check=True)
-                          print('yt-dlp download successful.')
-                      except Exception as ex:
-                          print('yt-dlp error:', ex)
-          asyncio.run(run())
-          " || true
-          
-          cd ..
+          sudo apt-get install -y jq || true
           
           echo "is_archive=false" >> $GITHUB_OUTPUT
           urls_json=$(grep -v '^#' yt_urls.txt | awk NF | jq -R -s -c 'split("\n") | map(select(length > 0))')
@@ -131,11 +78,11 @@ jobs:
         with:
           rclone_config: ${{ secrets.RCLONE_CONF }}
 
-      - name: Process Media (Convert & Sync)
+      - name: Process Media (Sniff, Convert & Sync)
         run: |
           TARGET_URL="${{ matrix.item }}"
           echo "=========================================="
-          echo "Processing DTube via Headless Playwright: $TARGET_URL"
+          echo "Processing DTube URL: $TARGET_URL"
           echo "=========================================="
           
           mkdir -p input output scripts raw_videos
@@ -178,10 +125,12 @@ jobs:
                           if 'playlist.m3u8' in v:
                               download_target = v
                               break
-                      print('Downloading target stream via yt-dlp:', download_target)
+                      print('Downloading stream via yt-dlp with dynamic naming:', download_target)
                       try:
-                          subprocess.run(['yt-dlp', download_target, '-o', 'dtube_video.mp4'], check=True)
-                          print('Successfully downloaded stream to dtube_video.mp4')
+                          # Menggunakan template judul dinamis ala yt-dlp
+                          filename_template = '%(title).50s_id-%(id)s.%(ext)s'
+                          subprocess.run(['yt-dlp', download_target, '-o', filename_template], check=True)
+                          print('Successfully downloaded stream.')
                       except Exception as ex:
                           print('yt-dlp process error:', ex)
           asyncio.run(run())
