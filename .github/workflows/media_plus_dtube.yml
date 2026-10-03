@@ -1,4 +1,4 @@
-name: DTube Headless Browser Experiment
+name: DTube Headless Browser & FFmpeg Pipeline
 
 on:
   workflow_dispatch:
@@ -55,7 +55,7 @@ jobs:
         id: set-matrix
         run: |
           sudo apt-get update
-          sudo apt-get install -y jq p7zip-full unrar megatools python3-pip libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libdbus-1-3 libexpat1 libfontconfig1 libgbm1 libglib2.0-0 libnspr4 libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext1 libxfixes1 libxi6 libxrandr2 libxrender1 libxss1 libxtst1 xdg-utils || true
+          sudo apt-get install -y jq p7zip-full unrar megatools python3-pip ffmpeg libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libdbus-1-3 libexpat1 libfontconfig1 libgbm1 libglib2.0-0 libnspr4 libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext1 libxfixes1 libxi6 libxrandr2 libxrender1 libxss1 libxtst1 xdg-utils || true
           
           python3 -m pip install --upgrade pip || true
           python3 -m pip install playwright requests || true
@@ -67,20 +67,17 @@ jobs:
           FIRST_URL=$(grep -v '^#' ../yt_urls.txt | awk NF | head -n 1)
           echo "Testing DTube URL via Playwright Sniffer: $FIRST_URL"
           
-          # Skrip Python Playwright untuk meng-intercept request jaringan dan mengambil file video/stream
           python3 -c "
-          import asyncio
+          import asyncio, subprocess
           from playwright.async_api import async_playwright
           
           async def run():
               async with async_playwright() as p:
                   browser = await p.chromium.launch(headless=True)
                   page = await browser.new_page()
-                  
                   target_url = '$FIRST_URL'
                   captured_video = []
                   
-                  # Intercept semua request network yang lewat
                   def handle_request(request):
                       url = request.url
                       if any(ext in url for ext in ['.mp4', '.ts', '.m3u8', 'ipfs']) and 'googletagmanager' not in url:
@@ -89,53 +86,31 @@ jobs:
                               print('Intercepted media URL:', url)
                               
                   page.on('request', handle_request)
-                  
                   try:
-                      print('Navigating to DTube page...')
                       await page.goto(target_url, timeout=60000)
-                      # Tunggu beberapa detik agar player sempat meload data video di balik layar
                       await page.wait_for_timeout(10000)
                   except Exception as e:
                       print('Navigation error:', e)
-                      
                   await browser.close()
                   
-                  # Jika ada link tertangkap, download link pertama yang valid
                   if captured_video:
-                      import urllib.request
-                      # Prioritaskan yang berakhiran .mp4 atau .ts jika ada
                       download_target = captured_video[0]
                       for v in captured_video:
-                          if '.mp4' in v or '.ts' in v:
+                          if 'playlist.m3u8' in v or 'master.m3u8' in v:
                               download_target = v
                               break
-                      print('Downloading captured stream from:', download_target)
+                      print('Downloading HLS stream via ffmpeg:', download_target)
                       try:
-                          urllib.request.urlretrieve(download_target, 'dtube_sniffed.mp4')
-                          print('Download successful via sniffer.')
+                          subprocess.run(['ffmpeg', '-y', '-i', download_target, '-c', 'copy', 'dtube_file.mp4'], check=True)
+                          print('FFmpeg merge successful.')
                       except Exception as ex:
-                          print('Failed to download sniffed file:', ex)
-                  else:
-                      print('No media stream captured by sniffer.')
-
+                          print('FFmpeg error:', ex)
           asyncio.run(run())
           " || true
           
-          IS_ARCHIVE_FILE=false
-          for downloaded_file in *; do
-            if [[ "$downloaded_file" =~ \.(zip|rar|7z|tar|gz|bz2|xz|mp4|mkv|ts)$ ]]; then
-              if [ "$downloaded_file" != "*" ]; then
-                IS_ARCHIVE_FILE=false # Langsung masuk direct mode karena filenya sudah ketangkap
-                break
-              fi
-            fi
-          done
-          
           cd ..
           
-          # Generate URL matrix standar
           echo "is_archive=false" >> $GITHUB_OUTPUT
-          rm -rf downloads_temp raw_videos
           urls_json=$(grep -v '^#' yt_urls.txt | awk NF | jq -R -s -c 'split("\n") | map(select(length > 0))')
           echo "matrix=$urls_json" >> $GITHUB_OUTPUT
 
@@ -165,13 +140,14 @@ jobs:
           
           mkdir -p input output scripts raw_videos
           
-          sudo apt-get install -y libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libdbus-1-3 libexpat1 libfontconfig1 libgbm1 libglib2.0-0 libnspr4 libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext1 libxfixes1 libxi6 libxrandr2 libxrender1 libxss1 libxtst1 xdg-utils || true
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libdbus-1-3 libexpat1 libfontconfig1 libgbm1 libglib2.0-0 libnspr4 libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext1 libxfixes1 libxi6 libxrandr2 libxrender1 libxss1 libxtst1 xdg-utils || true
           python3 -m pip install --upgrade pip || true
           python3 -m pip install playwright requests || true
           python3 -m playwright install chromium || true
           
           python3 -c "
-          import asyncio, urllib.request
+          import asyncio, subprocess
           from playwright.async_api import async_playwright
           
           async def run():
@@ -199,15 +175,15 @@ jobs:
                   if captured_video:
                       download_target = captured_video[0]
                       for v in captured_video:
-                          if '.mp4' in v or '.ts' in v:
+                          if 'playlist.m3u8' in v or 'master.m3u8' in v:
                               download_target = v
                               break
-                      print('Downloading target:', download_target)
+                      print('Downloading target stream via ffmpeg:', download_target)
                       try:
-                          urllib.request.urlretrieve(download_target, 'dtube_video.mp4')
-                          print('Successfully downloaded file.')
+                          subprocess.run(['ffmpeg', '-y', '-i', download_target, '-c', 'copy', 'dtube_video.mp4'], check=True)
+                          print('Successfully merged stream to dtube_video.mp4')
                       except Exception as ex:
-                          print('Download error:', ex)
+                          print('FFmpeg process error:', ex)
           asyncio.run(run())
           "
           
