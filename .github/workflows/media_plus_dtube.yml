@@ -1,4 +1,4 @@
-name: Plus DTube Smart Media Pipeline (Archive vs Direct Links)
+name: Smart Media Pipeline (Archive vs Direct Links)
 
 on:
   workflow_dispatch:
@@ -72,17 +72,7 @@ jobs:
             curl -L -O -J "https://pixeldrain.com/api/file/$FILE_ID" || true
           elif [[ "$FIRST_URL" =~ d\.tube ]]; then
             echo "Downloading test DTube file via API..."
-            python3 -c "import urllib.request, json, re; url='$FIRST_URL'; m=re.search(r'v=([a-fA-F0-9\-]+)', url); 
-            if m:
-                try:
-                    req = urllib.request.Request(f'https://api.d.tube/video/{m.group(1)}', headers={'User-Agent': 'Mozilla/5.0'})
-                    data = json.loads(urllib.request.urlopen(req).read().decode('utf-8'))
-                    ipfs = data.get('video', {}).get('files', {}).get('gateway', {}).get('ipfs') or data.get('video', {}).get('ipfs', {}).get('video')
-                    if ipfs:
-                        print('Found DTube IPFS hash:', ipfs)
-                        urllib.request.urlretrieve(f'https://ipfs.d.tube/ipfs/{ipfs}', 'dtube_file.mp4')
-                except Exception as e:
-                    print('DTube test error:', e)" || true
+            python3 -c "import urllib.request, json, re; url='$FIRST_URL'; m=re.search(r'v=([a-fA-F0-9\-]+)', url); req=urllib.request.Request(f'https://api.d.tube/video/{m.group(1)}', headers={'User-Agent': 'Mozilla/5.0'}) if m else None; data=json.loads(urllib.request.urlopen(req).read().decode('utf-8')) if req else {}; ipfs=data.get('video', {}).get('files', {}).get('gateway', {}).get('ipfs') or data.get('video', {}).get('ipfs', {}).get('video') if data else None; urllib.request.urlretrieve(f'https://ipfs.d.tube/ipfs/{ipfs}', 'dtube_file.mp4') if ipfs else print('DTube test failed')" || true
           else
             echo "Downloading test YouTube/Standard file..."
             python3 -m pip install -U "yt-dlp[default,curl-cffi]" --pre || true
@@ -196,24 +186,7 @@ jobs:
               curl -L -O -J "https://pixeldrain.com/api/file/$FILE_ID" || true
             elif [[ "$TARGET_URL" =~ d\.tube ]]; then
               echo "[DTube] Downloading via Python direct API & IPFS gateway..."
-              python3 -c "import urllib.request, json, re; url='$TARGET_URL'; m=re.search(r'v=([a-fA-F0-9\-]+)', url); 
-              if m:
-                  try:
-                      print('Fetching DTube metadata for ID:', m.group(1))
-                      req = urllib.request.Request(f'https://api.d.tube/video/{m.group(1)}', headers={'User-Agent': 'Mozilla/5.0'})
-                      data = json.loads(urllib.request.urlopen(req).read().decode('utf-8'))
-                      ipfs = data.get('video', {}).get('files', {}).get('gateway', {}).get('ipfs') or data.get('video', {}).get('ipfs', {}).get('video')
-                      if ipfs:
-                          stream_url = f'https://ipfs.d.tube/ipfs/{ipfs}'
-                          print('Found DTube IPFS stream URL:', stream_url)
-                          urllib.request.urlretrieve(stream_url, 'dtube_video.mp4')
-                          print('DTube download completed successfully.')
-                      else:
-                          print('Error: IPFS hash not found in DTube API response.')
-                  except Exception as e:
-                      print('DTube download failed with error:', e)
-              else:
-                  print('Error: Invalid DTube video ID format in URL.')"
+              python3 -c "import urllib.request, json, re; url='$TARGET_URL'; m=re.search(r'v=([a-fA-F0-9\-]+)', url); req=urllib.request.Request(f'https://api.d.tube/video/{m.group(1)}', headers={'User-Agent': 'Mozilla/5.0'}) if m else None; data=json.loads(urllib.request.urlopen(req).read().decode('utf-8')) if req else {}; ipfs=data.get('video', {}).get('files', {}).get('gateway', {}).get('ipfs') or data.get('video', {}).get('ipfs', {}).get('video') if data else None; urllib.request.urlretrieve(f'https://ipfs.d.tube/ipfs/{ipfs}', 'dtube_video.mp4') if ipfs else print('DTube download failed')"
             else
               echo "[YouTube] Downloading via yt-dlp..."
               python3 -m pip install -U "yt-dlp[default,curl-cffi]" --pre || true
