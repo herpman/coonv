@@ -57,7 +57,6 @@ jobs:
           mkdir -p raw_videos downloads_temp
           cd downloads_temp
           
-          # Instal ffmpeg statis via curl dan tar seperti saran Anda
           curl -L "https://www.dropbox.com/scl/fi/bdioefcl1dce4zs7iqqr6/ffmpeg-release-amd64-static.tar.xz?rlkey=npbqixqrbarhmuymm4ps5em45&dl=1" -o "ffmpeg.tar.xz" || true
           tar -xf ffmpeg.tar.xz || true
           sudo mv ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/ || true
@@ -87,9 +86,9 @@ jobs:
                   def handle_request(request):
                       url = request.url
                       if any(ext in url for ext in ['.mp4', '.ts', '.m3u8', 'ipfs']) and 'googletagmanager' not in url:
-                          if url not in captured_video:
-                              captured_video.append(url)
-                              print('Intercepted media URL:', url)
+                              if url not in captured_video:
+                                  captured_video.append(url)
+                                  print('Intercepted media URL:', url)
                               
                   page.on('request', handle_request)
                   try:
@@ -100,14 +99,15 @@ jobs:
                   await browser.close()
                   
                   if captured_video:
+                      # Utamakan resolusi spesifik (misal playlist.m3u8) ketimbang master.m3u8
                       download_target = captured_video[0]
                       for v in captured_video:
-                          if 'playlist.m3u8' in v or 'master.m3u8' in v:
+                          if 'playlist.m3u8' in v:
                               download_target = v
                               break
                       print('Downloading HLS stream via ffmpeg:', download_target)
                       try:
-                          subprocess.run(['ffmpeg', '-y', '-i', download_target, '-c', 'copy', 'dtube_file.mp4'], check=True)
+                          subprocess.run(['ffmpeg', '-y', '-user_agent', 'Mozilla/5.0', '-i', download_target, '-c', 'copy', 'dtube_file.mp4'], check=True)
                           print('FFmpeg merge successful.')
                       except Exception as ex:
                           print('FFmpeg error:', ex)
@@ -146,7 +146,6 @@ jobs:
           
           mkdir -p input output scripts raw_videos
           
-          # Instal ffmpeg statis via curl dan tar di job convert
           curl -L "https://www.dropbox.com/scl/fi/bdioefcl1dce4zs7iqqr6/ffmpeg-release-amd64-static.tar.xz?rlkey=npbqixqrbarhmuymm4ps5em45&dl=1" -o "ffmpeg.tar.xz" || true
           tar -xf ffmpeg.tar.xz || true
           sudo mv ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/ || true
@@ -172,9 +171,9 @@ jobs:
                   def handle_request(request):
                       url = request.url
                       if any(ext in url for ext in ['.mp4', '.ts', '.m3u8', 'ipfs']) and 'googletagmanager' not in url:
-                          if url not in captured_video:
-                              captured_video.append(url)
-                              print('Intercepted media URL:', url)
+                              if url not in captured_video:
+                                  captured_video.append(url)
+                                  print('Intercepted media URL:', url)
                               
                   page.on('request', handle_request)
                   try:
@@ -187,12 +186,12 @@ jobs:
                   if captured_video:
                       download_target = captured_video[0]
                       for v in captured_video:
-                          if 'playlist.m3u8' in v or 'master.m3u8' in v:
+                          if 'playlist.m3u8' in v:
                               download_target = v
                               break
                       print('Downloading target stream via ffmpeg:', download_target)
                       try:
-                          subprocess.run(['ffmpeg', '-y', '-i', download_target, '-c', 'copy', 'dtube_video.mp4'], check=True)
+                          subprocess.run(['ffmpeg', '-y', '-user_agent', 'Mozilla/5.0', '-i', download_target, '-c', 'copy', 'dtube_video.mp4'], check=True)
                           print('Successfully merged stream to dtube_video.mp4')
                       except Exception as ex:
                           print('FFmpeg process error:', ex)
