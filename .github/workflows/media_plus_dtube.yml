@@ -94,7 +94,7 @@ jobs:
           python3 -m playwright install chromium || true
           
           python3 -c "
-          import asyncio, subprocess, os
+          import asyncio, subprocess, os, re
           from playwright.async_api import async_playwright
           
           async def run():
@@ -117,7 +117,18 @@ jobs:
                       await page.wait_for_timeout(12000)
                   except Exception as e:
                       print('Error during page load:', e)
+                  
+                  # Ambil judul asli halaman web DTube
+                  page_title = await page.title()
                   await browser.close()
+                  
+                  # Bersihkan karakter judul agar aman menjadi nama file sistem operasi
+                  safe_title = re.sub(r'[\/:*?\"<>|]', '', page_title).strip()
+                  if not safe_title or len(safe_title) < 2:
+                      safe_title = 'dtube_video'
+                  
+                  output_filename = f'{safe_title[:60]}.mp4'
+                  print(f'Detected Video Title / Filename: {output_filename}')
                   
                   if captured_video:
                       download_target = captured_video[0]
@@ -125,11 +136,9 @@ jobs:
                           if 'playlist.m3u8' in v:
                               download_target = v
                               break
-                      print('Downloading stream via yt-dlp with dynamic naming:', download_target)
+                      print('Downloading stream via yt-dlp:', download_target)
                       try:
-                          # Menggunakan template judul dinamis ala yt-dlp
-                          filename_template = '%(title).50s_id-%(id)s.%(ext)s'
-                          subprocess.run(['yt-dlp', download_target, '-o', filename_template], check=True)
+                          subprocess.run(['yt-dlp', download_target, '-o', output_filename], check=True)
                           print('Successfully downloaded stream.')
                       except Exception as ex:
                           print('yt-dlp process error:', ex)
