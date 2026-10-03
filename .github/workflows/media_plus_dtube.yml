@@ -1,4 +1,4 @@
-name: Smart Media Pipeline (Archive vs Direct Links)
+name: DTube Experimental Pipeline
 
 on:
   workflow_dispatch:
@@ -57,27 +57,17 @@ jobs:
           sudo apt-get install -y jq p7zip-full unrar megatools python3-pip || true
           python3 -m pip install --upgrade pip || true
           
+          # Install yt-dlp beserta plugin DTube langsung dari branch GitHub aktif
+          python3 -m pip install -U "yt-dlp[default,curl-cffi]" --pre || true
+          python3 -m pip install -U https://github.com/flashdagger/ytdlp-plugins/archive/refs/heads/dtube.zip || true
+          
           mkdir -p raw_videos downloads_temp
           cd downloads_temp
           
           FIRST_URL=$(grep -v '^#' ../yt_urls.txt | awk NF | head -n 1)
-          echo "Checking first URL type for matrix: $FIRST_URL"
+          echo "Testing DTube URL via plugin: $FIRST_URL"
           
-          if [[ "$FIRST_URL" =~ mega\.nz ]]; then
-            echo "Downloading test MEGA file..."
-            megadl "$FIRST_URL" --path . || true
-          elif [[ "$FIRST_URL" =~ pixeldrain\.com/u/([a-zA-Z0-9]+) ]]; then
-            echo "Downloading test Pixeldrain file..."
-            FILE_ID="${BASH_REMATCH[1]}"
-            curl -L -O -J "https://pixeldrain.com/api/file/$FILE_ID" || true
-          elif [[ "$FIRST_URL" =~ d\.tube ]]; then
-            echo "Downloading test DTube file via API..."
-            python3 -c "import urllib.request, json, re; url='$FIRST_URL'; m=re.search(r'v=([a-fA-F0-9\-]+)', url); req=urllib.request.Request(f'https://api.d.tube/video/{m.group(1)}', headers={'User-Agent': 'Mozilla/5.0'}) if m else None; data=json.loads(urllib.request.urlopen(req).read().decode('utf-8')) if req else {}; ipfs=data.get('video', {}).get('files', {}).get('gateway', {}).get('ipfs') or data.get('video', {}).get('ipfs', {}).get('video') if data else None; urllib.request.urlretrieve(f'https://ipfs.d.tube/ipfs/{ipfs}', 'dtube_file.mp4') if ipfs else print('DTube test failed')" || true
-          else
-            echo "Downloading test YouTube/Standard file..."
-            python3 -m pip install -U "yt-dlp[default,curl-cffi]" --pre || true
-            python3 -m yt_dlp --no-playlist --restrict-filenames -o "first_file.%(ext)s" "$FIRST_URL" || true
-          fi
+          python3 -m yt_dlp --no-playlist --restrict-filenames -o "dtube_test.%(ext)s" "$FIRST_URL" || true
           
           IS_ARCHIVE_FILE=false
           for downloaded_file in *; do
@@ -91,8 +81,6 @@ jobs:
           
           if [ "$IS_ARCHIVE_FILE" = true ]; then
             echo "is_archive=true" >> $GITHUB_OUTPUT
-            echo "Detected Archive file! Extracting..."
-            
             mv downloads_temp/* .
             rm -rf downloads_temp
             
@@ -100,20 +88,16 @@ jobs:
               if [[ "$downloaded_file" =~ \.(zip|rar|7z|tar|gz|bz2|xz)$ ]]; then
                 7z x "$downloaded_file" -o"extracted_temp" || unrar x "$downloaded_file" "extracted_temp" || true
                 rm -f "$downloaded_file"
-                
-                find "extracted_temp" -type f \( -name "*.mp4" -o -name "*.mkv" -o -name "*.avi" -o -name "*.mov" -o -name "*.webm" -o -name "*.flv" -o -name "*.srt" -o -name "*.ass" \) -exec mv {} raw_videos/ \;
+                find "extracted_temp" -type f \( -name "*.mp4" -o -name "*.mkv" -o -name "*.avi" -o -name "*.mov" -o -name "*.webm" -o -name "*.flv" \) -exec mv {} raw_videos/ \;
                 rm -rf "extracted_temp"
               fi
             done
             
             files_json=$(find raw_videos -type f -maxdepth 1 \( -name "*.mp4" -o -name "*.mkv" -o -name "*.avi" -o -name "*.mov" -o -name "*.webm" -o -name "*.flv" \) -printf '%f\n' | jq -R -s -c 'split("\n") | map(select(length > 0))')
             echo "matrix=$files_json" >> $GITHUB_OUTPUT
-            
           else
             echo "is_archive=false" >> $GITHUB_OUTPUT
-            echo "Detected Direct Video/YouTube/DTube links. Cleaning temp and generating URL matrix..."
             rm -rf downloads_temp raw_videos
-            
             urls_json=$(grep -v '^#' yt_urls.txt | awk NF | jq -R -s -c 'split("\n") | map(select(length > 0))')
             echo "matrix=$urls_json" >> $GITHUB_OUTPUT
           fi
@@ -160,48 +144,24 @@ jobs:
           if [ "$IS_ARCHIVE" == "true" ]; then
             FILENAME="$ITEM"
             mv "raw_files/$FILENAME" "input/$FILENAME"
-            
-            base_name="${FILENAME%.*}"
-            if [ -f "raw_files/$base_name.srt" ]; then
-              mv "raw_files/$base_name.srt" "input/"
-            fi
-            if [ -f "raw_files/$base_name.ass" ]; then
-              mv "raw_files/$base_name.ass" "input/"
-            fi
           else
             TARGET_URL="$ITEM"
             echo "=========================================="
-            echo "Downloading media from URL: $TARGET_URL"
+            echo "Processing DTube URL: $TARGET_URL"
             echo "=========================================="
             
-            sudo apt-get install -y megatools nodejs npm python3-pip || true
+            sudo apt-get install -y nodejs npm python3-pip || true
             python3 -m pip install --upgrade pip || true
+            python3 -m pip install -U "yt-dlp[default,curl-cffi]" --pre || true
+            python3 -m pip install -U https://github.com/flashdagger/ytdlp-plugins/archive/refs/heads/dtube.zip || true
             
-            if [[ "$TARGET_URL" =~ mega\.nz ]]; then
-              echo "[MEGA] Downloading via megadl..."
-              megadl "$TARGET_URL" --path . || true
-            elif [[ "$TARGET_URL" =~ pixeldrain\.com/u/([a-zA-Z0-9]+) ]]; then
-              echo "[PixelDrain] Downloading via curl API..."
-              FILE_ID="${BASH_REMATCH[1]}"
-              curl -L -O -J "https://pixeldrain.com/api/file/$FILE_ID" || true
-            elif [[ "$TARGET_URL" =~ d\.tube ]]; then
-              echo "[DTube] Downloading via Python direct API & IPFS gateway..."
-              python3 -c "import urllib.request, json, re; url='$TARGET_URL'; m=re.search(r'v=([a-fA-F0-9\-]+)', url); req=urllib.request.Request(f'https://api.d.tube/video/{m.group(1)}', headers={'User-Agent': 'Mozilla/5.0'}) if m else None; data=json.loads(urllib.request.urlopen(req).read().decode('utf-8')) if req else {}; ipfs=data.get('video', {}).get('files', {}).get('gateway', {}).get('ipfs') or data.get('video', {}).get('ipfs', {}).get('video') if data else None; urllib.request.urlretrieve(f'https://ipfs.d.tube/ipfs/{ipfs}', 'dtube_video.mp4') if ipfs else print('DTube download failed')"
-            else
-              echo "[YouTube] Downloading via yt-dlp..."
-              python3 -m pip install -U "yt-dlp[default,curl-cffi]" --pre || true
-              
-              FILENAME_TEMPLATE="%(title).50s_id-%(id)s.%(ext)s"
-              python3 -m yt_dlp --js-runtimes node \
-                     --extractor-args "generic:impersonate;youtube:player_client=web_embedded" \
-                     --cookies youtube_cookies.txt \
-                     --no-playlist --restrict-filenames \
-                     -o "$FILENAME_TEMPLATE" \
-                     -f "bv*[vcodec^=avc1]+ba/b / best" \
-                     -P "raw_videos" "$TARGET_URL" || true
-            fi
+            FILENAME_TEMPLATE="%(title).50s_id-%(id)s.%(ext)s"
+            python3 -m yt_dlp --js-runtimes node \
+                   --no-playlist --restrict-filenames \
+                   -o "$FILENAME_TEMPLATE" \
+                   -P "raw_videos" "$TARGET_URL"
             
-            echo "Moving downloaded files into input/ folder..."
+            echo "Moving downloaded DTube files into input/ folder..."
             for downloaded_file in *; do
               if [[ "$downloaded_file" =~ \.(mp4|mkv|avi|mov|webm|flv|srt|ass)$ ]]; then
                 mv "$downloaded_file" input/
