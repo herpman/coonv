@@ -1,4 +1,4 @@
-name: Plus Dtube Smart Media Pipeline (Archive vs Direct Links)
+name: Plus DTube Smart Media Pipeline (Archive vs Direct Links)
 
 on:
   workflow_dispatch:
@@ -45,8 +45,8 @@ jobs:
     steps:
       - name: Disable man-db auto-update
         run: |
-          echo 'set man-db/auto-update false' | sudo debconf-communicate
-          sudo dpkg-reconfigure man-db
+          echo 'set man-db/auto-update false' | sudo debconf-communicate || true
+          sudo dpkg-reconfigure man-db || true
 
       - name: Checkout
         uses: actions/checkout@v5
@@ -54,33 +54,31 @@ jobs:
       - name: Detect Type & Generate Matrix
         id: set-matrix
         run: |
-          sudo apt-get update
-          sudo apt-get install -y jq p7zip-full unrar megatools
+          sudo apt-get install -y jq p7zip-full unrar megatools || true
           
           mkdir -p raw_videos downloads_temp
           cd downloads_temp
           
-          # Baca baris pertama yt_urls.txt
           FIRST_URL=$(grep -v '^#' ../yt_urls.txt | awk NF | head -n 1)
           
-          # Download file pertama ke folder temporary jika itu arsip
           if [[ "$FIRST_URL" =~ mega\.nz ]]; then
             megadl "$FIRST_URL" --path .
           elif [[ "$FIRST_URL" =~ pixeldrain\.com/u/([a-zA-Z0-9]+) ]]; then
             FILE_ID="${BASH_REMATCH[1]}"
             curl -L -O -J "https://pixeldrain.com/api/file/$FILE_ID"
           elif [[ "$FIRST_URL" =~ d\.tube ]]; then
-            # DTube uji coba baris pertama (jika berupa arsip/file langsung di d.tube)
-            PAGE_HTML=$(curl -sL "$FIRST_URL")
-            STREAM_URL=$(echo "$PAGE_HTML" | grep -oP 'https?://[^"'\''\s]+\.(mp4|m3u8)' | head -n 1)
-            if [ -n "$STREAM_URL" ]; then
-              curl -L -o "dtube_file.mp4" "$STREAM_URL"
-            fi
+            python3 -c "
+            import urllib.request, re
+            req = urllib.request.urlopen('$FIRST_URL')
+            html = req.read().decode('utf-8')
+            match = re.search(r'https?://[^\s\"<>]+?\.(mp4|m3u8)', html)
+            if match:
+                urllib.request.urlretrieve(match.group(0), 'dtube_file.mp4')
+            " || true
           else
             curl -L -O -J "$FIRST_URL" || true
           fi
           
-          # Cek file apa yang baru saja didownload
           IS_ARCHIVE_FILE=false
           for downloaded_file in *; do
             if [[ "$downloaded_file" =~ \.(zip|rar|7z|tar|gz|bz2|xz)$ ]]; then
@@ -95,7 +93,6 @@ jobs:
             echo "is_archive=true" >> $GITHUB_OUTPUT
             echo "Detected Archive file! Extracting..."
             
-            # Pindahkan file arsip ke root workspace untuk diekstrak
             mv downloads_temp/* .
             rm -rf downloads_temp
             
@@ -109,7 +106,6 @@ jobs:
               fi
             done
             
-            # Buat Matrix JSON dari nama file hasil ekstrak
             files_json=$(find raw_videos -type f -maxdepth 1 \( -name "*.mp4" -o -name "*.mkv" -o -name "*.avi" -o -name "*.mov" -o -name "*.webm" -o -name "*.flv" \) -printf '%f\n' | jq -R -s -c 'split("\n") | map(select(length > 0))')
             echo "matrix=$files_json" >> $GITHUB_OUTPUT
             
@@ -162,7 +158,6 @@ jobs:
           mkdir -p input output scripts raw_videos
           
           if [ "$IS_ARCHIVE" == "true" ]; then
-            # Mode Arsip: Ambil file video dari artifact
             FILENAME="$ITEM"
             mv "raw_files/$FILENAME" "input/$FILENAME"
             
@@ -174,12 +169,8 @@ jobs:
               mv "raw_files/$base_name.ass" "input/"
             fi
           else
-            # Mode Direct Link: Download langsung file videonya di runner masing-masing tanpa artifact
             TARGET_URL="$ITEM"
             echo "Downloading media from URL: $TARGET_URL"
-            
-            sudo apt-get update
-            sudo apt-get install -y megatools curl python3
             
             if [[ "$TARGET_URL" =~ mega\.nz ]]; then
               megadl "$TARGET_URL" --path .
@@ -187,26 +178,27 @@ jobs:
               FILE_ID="${BASH_REMATCH[1]}"
               curl -L -O -J "https://pixeldrain.com/api/file/$FILE_ID"
             elif [[ "$TARGET_URL" =~ d\.tube ]]; then
-              echo "Extracting direct video stream from DTube..."
-              PAGE_HTML=$(curl -sL "$TARGET_URL")
-              
-              # Coba ekstrak link file video dari struktur halaman DTube
-              STREAM_URL=$(echo "$PAGE_HTML" | grep -oP 'https?://[^"'\''\s]+\.(mp4|m3u8)' | head -n 1)
-              if [ -z "$STREAM_URL" ]; then
-                # Fallback pencarian pola JSON jika ada
-                STREAM_URL=$(echo "$PAGE_HTML" | grep -oP '"videoUrl"\s*:\s*"([^"]+)"' | head -n 1 | cut -d'"' -f4)
-              fi
-              
-              if [ -n "$STREAM_URL" ]; then
-                echo "Found DTube stream URL: $STREAM_URL"
-                curl -L -o "dtube_video.mp4" "$STREAM_URL"
-              else
-                echo "Error: Gagal menemukan direct link video dari DTube."
-              fi
+              echo "Downloading DTube via Python script extraction..."
+              python3 -c "
+              import urllib.request, re, os
+              url = '$TARGET_URL'
+              headers = {'User-Agent': 'Mozilla/5.0'}
+              req = urllib.request.Request(url, headers=headers)
+              try:
+                  html = urllib.request.urlopen(req).read().decode('utf-8')
+                  match = re.search(r'https?://[^\s\"<>]+?\.(mp4|m3u8)', html)
+                  if match:
+                      stream_url = match.group(0)
+                      print('Found stream:', stream_url)
+                      urllib.request.urlretrieve(stream_url, 'dtube_video.mp4')
+                  else:
+                      print('Direct stream extension not found in HTML.')
+              except Exception as e:
+                  print('Error fetching DTube:', e)
+              "
             else
-              sudo apt-get install -y nodejs npm python3-pip
-              python3 -m pip install -U "yt-dlp[default,curl-cffi]" yt-dlp-ejs --pre
-              yt-dlp --update-to nightly
+              python3 -m pip install -U "yt-dlp[default,curl-cffi]" yt-dlp-ejs --pre || true
+              yt-dlp --update-to nightly || true
               
               FILENAME_TEMPLATE="%(title).50s_id-%(id)s.%(ext)s"
               yt-dlp --js-runtimes node \
@@ -218,7 +210,6 @@ jobs:
                      -P "raw_videos" "$TARGET_URL" || true
             fi
             
-            # Pindahkan file hasil download ke folder input/
             for downloaded_file in *; do
               if [[ "$downloaded_file" =~ \.(mp4|mkv|avi|mov|webm|flv|srt|ass)$ ]]; then
                 mv "$downloaded_file" input/
@@ -230,7 +221,6 @@ jobs:
             fi
           fi
           
-          # Download dan jalankan script konversi dari Dropbox
           rclone copy DBOX:scripts ./scripts
           chmod +x ./scripts/convert_media.sh
           ./scripts/convert_media.sh
