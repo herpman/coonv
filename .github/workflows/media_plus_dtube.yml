@@ -57,9 +57,8 @@ jobs:
           sudo apt-get update -y || true
           sudo apt-get install -y jq python3 || true
           
-          # Parsing file txt yang memiliki format: NamaFile | URL
           python3 -c "
-          import json, re
+          import json, re, os
           matrix_data = []
           with open('yt_urls.txt', 'r') as f:
               for line in f:
@@ -72,7 +71,6 @@ jobs:
                       url = parts[1].strip()
                       matrix_data.append({'name': custom_name, 'url': url})
                   else:
-                      # Fallback jika baris hanya berisi URL murni
                       url = line
                       match = re.search(r'v=([a-zA-Z0-9-]+)', url)
                       fallback_name = match.group(1) if match else 'dtube_video'
@@ -83,7 +81,6 @@ jobs:
               out_file.write(f'is_archive=false\n')
               out_file.write(f'matrix={json.dumps(matrix_data)}\n')
           "
-          python3 -c "import os" # Dummy import to ensure multiplatform safety
 
   convert:
     needs: prepare-matrix
@@ -146,7 +143,6 @@ jobs:
                       print('Error during page load:', e)
                   await browser.close()
                   
-                  # Gunakan nama kustom yang di-passing dari matriks teks
                   raw_custom_name = '$CUSTOM_NAME'
                   safe_title = re.sub(r'[\/:*?\"<>|]', '', raw_custom_name).strip()
                   output_filename = f'{safe_title}.mp4'
