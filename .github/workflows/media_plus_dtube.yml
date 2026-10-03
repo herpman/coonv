@@ -57,12 +57,10 @@ jobs:
           mkdir -p raw_videos downloads_temp
           cd downloads_temp
           
-          # Download static ffmpeg binary langsung agar tidak bergantung pada apt-get
-          wget -q https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-linux64-gpl-7.1.tar.xz
-          tar -xf ffmpeg-n7.1-latest-linux64-gpl-7.1.tar.xz
-          export PATH="$PWD/ffmpeg-n7.1-latest-linux64-gpl-7.1/bin:$PATH"
+          # Instal ffmpeg dan dependensi browser melalui apt resmi
+          sudo apt-get update -y || true
+          sudo apt-get install -y ffmpeg jq p7zip-full unrar megatools python3-pip libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libdbus-1-3 libexpat1 libfontconfig1 libgbm1 libglib2.0-0 libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext1 libxfixes1 libxi6 libxrandr2 libxrender1 libxss1 libxtst1 xdg-utils || true
           
-          sudo apt-get install -y python3-pip libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libdbus-1-3 libexpat1 libfontconfig1 libgbm1 libglib2.0-0 libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext1 libxfixes1 libxi6 libxrandr2 libxrender1 libxss1 libxtst1 xdg-utils || true
           python3 -m pip install --upgrade pip || true
           python3 -m pip install playwright requests || true
           python3 -m playwright install chromium || true
@@ -104,9 +102,7 @@ jobs:
                               break
                       print('Downloading HLS stream via ffmpeg:', download_target)
                       try:
-                          # Cari path ffmpeg lokal
-                          ffmpeg_bin = '$(pwd)/ffmpeg-n7.1-latest-linux64-gpl-7.1/bin/ffmpeg'
-                          subprocess.run([ffmpeg_bin, '-y', '-i', download_target, '-c', 'copy', 'dtube_file.mp4'], check=True)
+                          subprocess.run(['ffmpeg', '-y', '-i', download_target, '-c', 'copy', 'dtube_file.mp4'], check=True)
                           print('FFmpeg merge successful.')
                       except Exception as ex:
                           print('FFmpeg error:', ex)
@@ -145,11 +141,8 @@ jobs:
           
           mkdir -p input output scripts raw_videos
           
-          # Download static ffmpeg binary langsung di job convert
-          wget -q https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-linux64-gpl-7.1.tar.xz
-          tar -xf ffmpeg-n7.1-latest-linux64-gpl-7.1.tar.xz
-          
-          sudo apt-get install -y libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libdbus-1-3 libexpat1 libfontconfig1 libgbm1 libglib2.0-0 libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext1 libxfixes1 libxi6 libxrandr2 libxrender1 libxss1 libxtst1 xdg-utils || true
+          sudo apt-get update -y || true
+          sudo apt-get install -y ffmpeg libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libdbus-1-3 libexpat1 libfontconfig1 libgbm1 libglib2.0-0 libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext1 libxfixes1 libxi6 libxrandr2 libxrender1 libxss1 libxtst1 xdg-utils || true
           python3 -m pip install --upgrade pip || true
           python3 -m pip install playwright requests || true
           python3 -m playwright install chromium || true
@@ -188,8 +181,7 @@ jobs:
                               break
                       print('Downloading target stream via ffmpeg:', download_target)
                       try:
-                          ffmpeg_bin = '$(pwd)/ffmpeg-n7.1-latest-linux64-gpl-7.1/bin/ffmpeg'
-                          subprocess.run([ffmpeg_bin, '-y', '-i', download_target, '-c', 'copy', 'dtube_video.mp4'], check=True)
+                          subprocess.run(['ffmpeg', '-y', '-i', download_target, '-c', 'copy', 'dtube_video.mp4'], check=True)
                           print('Successfully merged stream to dtube_video.mp4')
                       except Exception as ex:
                           print('FFmpeg process error:', ex)
