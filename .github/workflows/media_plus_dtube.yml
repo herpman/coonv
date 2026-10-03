@@ -51,15 +51,39 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Generate URL Matrix Instantly
+      - name: Generate Custom Named Matrix
         id: set-matrix
         run: |
           sudo apt-get update -y || true
-          sudo apt-get install -y jq || true
+          sudo apt-get install -y jq python3 || true
           
-          echo "is_archive=false" >> $GITHUB_OUTPUT
-          urls_json=$(grep -v '^#' yt_urls.txt | awk NF | jq -R -s -c 'split("\n") | map(select(length > 0))')
-          echo "matrix=$urls_json" >> $GITHUB_OUTPUT
+          # Parsing file txt yang memiliki format: NamaFile | URL
+          python3 -c "
+          import json, re
+          matrix_data = []
+          with open('yt_urls.txt', 'r') as f:
+              for line in f:
+                  line = line.strip()
+                  if not line or line.startswith('#'):
+                      continue
+                  if '|' in line:
+                      parts = line.split('|', 1)
+                      custom_name = parts[0].strip()
+                      url = parts[1].strip()
+                      matrix_data.append({'name': custom_name, 'url': url})
+                  else:
+                      # Fallback jika baris hanya berisi URL murni
+                      url = line
+                      match = re.search(r'v=([a-zA-Z0-9-]+)', url)
+                      fallback_name = match.group(1) if match else 'dtube_video'
+                      matrix_data.append({'name': fallback_name, 'url': url})
+                      
+          print(f'Generated Matrix: {matrix_data}')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out_file:
+              out_file.write(f'is_archive=false\n')
+              out_file.write(f'matrix={json.dumps(matrix_data)}\n')
+          "
+          python3 -c "import os" # Dummy import to ensure multiplatform safety
 
   convert:
     needs: prepare-matrix
@@ -80,9 +104,12 @@ jobs:
 
       - name: Process Media (Sniff, Convert & Sync)
         run: |
-          TARGET_URL="${{ matrix.item }}"
+          TARGET_URL="${{ matrix.item.url }}"
+          CUSTOM_NAME="${{ matrix.item.name }}"
+          
           echo "=========================================="
-          echo "Processing DTube URL: $TARGET_URL"
+          echo "Processing Custom Name: $CUSTOM_NAME"
+          echo "Target URL: $TARGET_URL"
           echo "=========================================="
           
           mkdir -p input output scripts raw_videos
@@ -117,18 +144,13 @@ jobs:
                       await page.wait_for_timeout(12000)
                   except Exception as e:
                       print('Error during page load:', e)
-                  
-                  # Ambil judul asli halaman web DTube
-                  page_title = await page.title()
                   await browser.close()
                   
-                  # Bersihkan karakter judul agar aman menjadi nama file sistem operasi
-                  safe_title = re.sub(r'[\/:*?\"<>|]', '', page_title).strip()
-                  if not safe_title or len(safe_title) < 2:
-                      safe_title = 'dtube_video'
-                  
-                  output_filename = f'{safe_title[:60]}.mp4'
-                  print(f'Detected Video Title / Filename: {output_filename}')
+                  # Gunakan nama kustom yang di-passing dari matriks teks
+                  raw_custom_name = '$CUSTOM_NAME'
+                  safe_title = re.sub(r'[\/:*?\"<>|]', '', raw_custom_name).strip()
+                  output_filename = f'{safe_title}.mp4'
+                  print(f'Final Output Filename Set To: {output_filename}')
                   
                   if captured_video:
                       download_target = captured_video[0]
