@@ -57,8 +57,14 @@ jobs:
           mkdir -p raw_videos downloads_temp
           cd downloads_temp
           
+          # Instal ffmpeg statis via curl dan tar seperti saran Anda
+          curl -L "https://www.dropbox.com/scl/fi/bdioefcl1dce4zs7iqqr6/ffmpeg-release-amd64-static.tar.xz?rlkey=npbqixqrbarhmuymm4ps5em45&dl=1" -o "ffmpeg.tar.xz" || true
+          tar -xf ffmpeg.tar.xz || true
+          sudo mv ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/ || true
+          sudo chmod +x /usr/local/bin/ffmpeg || true
+          
           sudo apt-get update -y || true
-          sudo apt-get install -y ffmpeg jq p7zip-full unrar megatools python3-pip libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libdbus-1-3 libexpat1 libfontconfig1 libgbm1 libglib2.0-0 libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext1 libxfixes1 libxi6 libxrandr2 libxrender1 libxss1 libxtst1 xdg-utils || true
+          sudo apt-get install -y jq p7zip-full unrar megatools python3-pip libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libdbus-1-3 libexpat1 libfontconfig1 libgbm1 libglib2.0-0 libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext1 libxfixes1 libxi6 libxrandr2 libxrender1 libxss1 libxtst1 xdg-utils || true
           
           python3 -m pip install --upgrade pip || true
           python3 -m pip install playwright requests || true
@@ -101,7 +107,7 @@ jobs:
                               break
                       print('Downloading HLS stream via ffmpeg:', download_target)
                       try:
-                          subprocess.run(['/usr/bin/ffmpeg', '-y', '-i', download_target, '-c', 'copy', 'dtube_file.mp4'], check=True)
+                          subprocess.run(['ffmpeg', '-y', '-i', download_target, '-c', 'copy', 'dtube_file.mp4'], check=True)
                           print('FFmpeg merge successful.')
                       except Exception as ex:
                           print('FFmpeg error:', ex)
@@ -140,8 +146,14 @@ jobs:
           
           mkdir -p input output scripts raw_videos
           
+          # Instal ffmpeg statis via curl dan tar di job convert
+          curl -L "https://www.dropbox.com/scl/fi/bdioefcl1dce4zs7iqqr6/ffmpeg-release-amd64-static.tar.xz?rlkey=npbqixqrbarhmuymm4ps5em45&dl=1" -o "ffmpeg.tar.xz" || true
+          tar -xf ffmpeg.tar.xz || true
+          sudo mv ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/ || true
+          sudo chmod +x /usr/local/bin/ffmpeg || true
+          
           sudo apt-get update -y || true
-          sudo apt-get install -y ffmpeg libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libdbus-1-3 libexpat1 libfontconfig1 libgbm1 libglib2.0-0 libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext1 libxfixes1 libxi6 libxrandr2 libxrender1 libxss1 libxtst1 xdg-utils || true
+          sudo apt-get install -y libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libdbus-1-3 libexpat1 libfontconfig1 libgbm1 libglib2.0-0 libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext1 libxfixes1 libxi6 libxrandr2 libxrender1 libxss1 libxtst1 xdg-utils || true
           python3 -m pip install --upgrade pip || true
           python3 -m pip install playwright requests || true
           python3 -m playwright install chromium || true
@@ -180,7 +192,7 @@ jobs:
                               break
                       print('Downloading target stream via ffmpeg:', download_target)
                       try:
-                          subprocess.run(['/usr/bin/ffmpeg', '-y', '-i', download_target, '-c', 'copy', 'dtube_video.mp4'], check=True)
+                          subprocess.run(['ffmpeg', '-y', '-i', download_target, '-c', 'copy', 'dtube_video.mp4'], check=True)
                           print('Successfully merged stream to dtube_video.mp4')
                       except Exception as ex:
                           print('FFmpeg process error:', ex)
