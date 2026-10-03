@@ -1,4 +1,4 @@
-name: Plus DTube Smart Media Pipeline (Archive vs Direct Links)
+name: Smart Media Pipeline (Archive vs Direct Links)
 
 on:
   workflow_dispatch:
@@ -54,7 +54,9 @@ jobs:
       - name: Detect Type & Generate Matrix
         id: set-matrix
         run: |
-          sudo apt-get install -y jq p7zip-full unrar megatools || true
+          sudo apt-get install -y jq p7zip-full unrar megatools python3-pip || true
+          python3 -m pip install --upgrade pip || true
+          python3 -m pip install -U "yt-dlp[default,curl-cffi]" ytdlp-dtube --pre || true
           
           mkdir -p raw_videos downloads_temp
           cd downloads_temp
@@ -62,14 +64,14 @@ jobs:
           FIRST_URL=$(grep -v '^#' ../yt_urls.txt | awk NF | head -n 1)
           
           if [[ "$FIRST_URL" =~ mega\.nz ]]; then
-            megadl "$FIRST_URL" --path .
+            megadl "$FIRST_URL" --path . || true
           elif [[ "$FIRST_URL" =~ pixeldrain\.com/u/([a-zA-Z0-9]+) ]]; then
             FILE_ID="${BASH_REMATCH[1]}"
-            curl -L -O -J "https://pixeldrain.com/api/file/$FILE_ID"
+            curl -L -O -J "https://pixeldrain.com/api/file/$FILE_ID" || true
           elif [[ "$FIRST_URL" =~ d\.tube ]]; then
-            python3 -c "import urllib.request, re; html = urllib.request.urlopen(urllib.request.Request('$FIRST_URL', headers={'User-Agent': 'Mozilla/5.0'})).read().decode('utf-8'); m = re.search(r'https?://[^\s\"<>]+?\.(mp4|m3u8)', html); urllib.request.urlretrieve(m.group(0), 'dtube_file.mp4') if m else None" || true
+            python3 -m yt_dlp --no-playlist --restrict-filenames -o "dtube_file.%(ext)s" "$FIRST_URL" || true
           else
-            curl -L -O -J "$FIRST_URL" || true
+            python3 -m yt_dlp --no-playlist --restrict-filenames -o "first_file.%(ext)s" "$FIRST_URL" || true
           fi
           
           IS_ARCHIVE_FILE=false
@@ -165,20 +167,24 @@ jobs:
             TARGET_URL="$ITEM"
             echo "Downloading media from URL: $TARGET_URL"
             
+            sudo apt-get install -y megatools nodejs npm python3-pip || true
+            python3 -m pip install --upgrade pip || true
+            python3 -m pip install -U "yt-dlp[default,curl-cffi]" ytdlp-dtube --pre || true
+            
             if [[ "$TARGET_URL" =~ mega\.nz ]]; then
-              megadl "$TARGET_URL" --path .
+              megadl "$TARGET_URL" --path . || true
             elif [[ "$TARGET_URL" =~ pixeldrain\.com/u/([a-zA-Z0-9]+) ]]; then
               FILE_ID="${BASH_REMATCH[1]}"
-              curl -L -O -J "https://pixeldrain.com/api/file/$FILE_ID"
+              curl -L -O -J "https://pixeldrain.com/api/file/$FILE_ID" || true
             elif [[ "$TARGET_URL" =~ d\.tube ]]; then
-              echo "Downloading DTube via Python script extraction..."
-              python3 -c "import urllib.request, re; url = '$TARGET_URL'; req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'}); html = urllib.request.urlopen(req).read().decode('utf-8'); m = re.search(r'https?://[^\s\"<>]+?\.(mp4|m3u8)', html); urllib.request.urlretrieve(m.group(0), 'dtube_video.mp4') if m else print('Stream not found')"
-            else
-              python3 -m pip install -U "yt-dlp[default,curl-cffi]" yt-dlp-ejs --pre || true
-              yt-dlp --update-to nightly || true
-              
+              echo "Downloading DTube via python3 -m yt_dlp with dtube plugin..."
               FILENAME_TEMPLATE="%(title).50s_id-%(id)s.%(ext)s"
-              yt-dlp --js-runtimes node \
+              python3 -m yt_dlp --no-playlist --restrict-filenames \
+                     -o "$FILENAME_TEMPLATE" \
+                     -P "raw_videos" "$TARGET_URL" || true
+            else
+              FILENAME_TEMPLATE="%(title).50s_id-%(id)s.%(ext)s"
+              python3 -m yt_dlp --js-runtimes node \
                      --extractor-args "generic:impersonate;youtube:player_client=web_embedded" \
                      --cookies youtube_cookies.txt \
                      --no-playlist --restrict-filenames \
