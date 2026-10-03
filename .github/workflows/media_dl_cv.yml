@@ -83,7 +83,7 @@ jobs:
           sudo mv ./ffprobe /usr/local/bin/ffprobe
           sudo apt-get install jq python3 python3-pip
           python -m pip install --upgrade pip
-          python -m pip install -U "yt-dlp[default,curl-cffi]" yt-dlp-ejs --pre
+          python -m pip install -U "yt-dlp[default,curl-cffi]" yt-dlp-ejs ytdlp-dtube --pre
           yt-dlp --update-to nightly
           yt-dlp --version
 
