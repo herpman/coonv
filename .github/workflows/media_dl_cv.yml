@@ -102,7 +102,7 @@ jobs:
           # supaya dijamin tidak akan pernah ada nama file kembar/tertukar di Google Drive.
           FILENAME_TEMPLATE="%(title).50s_id-%(id)s_time-%(epoch)s.%(ext)s"
           
-          yt-dlp --js-runtimes node \
+          python3 -m yt-dlp --js-runtimes node \
                  --extractor-args "generic:impersonate;youtube:player_client=web_embedded" \
                  --fragment-retries 5 --concurrent-fragments 1 \
                  --cookies youtube_cookies.txt \
