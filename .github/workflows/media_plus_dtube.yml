@@ -1,4 +1,4 @@
-name: Smart Media Pipeline (Archive vs Direct Links)
+name: Plus DTube Smart Media Pipeline (Archive vs Direct Links)
 
 on:
   workflow_dispatch:
@@ -61,31 +61,30 @@ jobs:
           cd downloads_temp
           
           FIRST_URL=$(grep -v '^#' ../yt_urls.txt | awk NF | head -n 1)
+          echo "Checking first URL type for matrix: $FIRST_URL"
           
           if [[ "$FIRST_URL" =~ mega\.nz ]]; then
+            echo "Downloading test MEGA file..."
             megadl "$FIRST_URL" --path . || true
           elif [[ "$FIRST_URL" =~ pixeldrain\.com/u/([a-zA-Z0-9]+) ]]; then
+            echo "Downloading test Pixeldrain file..."
             FILE_ID="${BASH_REMATCH[1]}"
             curl -L -O -J "https://pixeldrain.com/api/file/$FILE_ID" || true
           elif [[ "$FIRST_URL" =~ d\.tube ]]; then
-            python3 -c "
-            import urllib.request, json, re
-            url = '$FIRST_URL'
-            match = re.search(r'v=([a-fA-F0-9\-]+)', url)
-            if match:
-                vid_id = match.group(1)
-                api_url = f'https://api.d.tube/video/{vid_id}'
+            echo "Downloading test DTube file via API..."
+            python3 -c "import urllib.request, json, re; url='$FIRST_URL'; m=re.search(r'v=([a-fA-F0-9\-]+)', url); 
+            if m:
                 try:
-                    req = urllib.request.Request(api_url, headers={'User-Agent': 'Mozilla/5.0'})
+                    req = urllib.request.Request(f'https://api.d.tube/video/{m.group(1)}', headers={'User-Agent': 'Mozilla/5.0'})
                     data = json.loads(urllib.request.urlopen(req).read().decode('utf-8'))
-                    ipfs_hash = data.get('video', {}).get('files', {}).get('gateway', {}).get('ipfs') or data.get('video', {}).get('ipfs', {}).get('video')
-                    if ipfs_hash:
-                        stream_url = f'https://ipfs.d.tube/ipfs/{ipfs_hash}'
-                        urllib.request.urlretrieve(stream_url, 'dtube_file.mp4')
+                    ipfs = data.get('video', {}).get('files', {}).get('gateway', {}).get('ipfs') or data.get('video', {}).get('ipfs', {}).get('video')
+                    if ipfs:
+                        print('Found DTube IPFS hash:', ipfs)
+                        urllib.request.urlretrieve(f'https://ipfs.d.tube/ipfs/{ipfs}', 'dtube_file.mp4')
                 except Exception as e:
-                    print('DTube matrix fetch error:', e)
-            " || true
+                    print('DTube test error:', e)" || true
           else
+            echo "Downloading test YouTube/Standard file..."
             python3 -m pip install -U "yt-dlp[default,curl-cffi]" --pre || true
             python3 -m yt_dlp --no-playlist --restrict-filenames -o "first_file.%(ext)s" "$FIRST_URL" || true
           fi
@@ -181,37 +180,42 @@ jobs:
             fi
           else
             TARGET_URL="$ITEM"
+            echo "=========================================="
             echo "Downloading media from URL: $TARGET_URL"
+            echo "=========================================="
             
             sudo apt-get install -y megatools nodejs npm python3-pip || true
             python3 -m pip install --upgrade pip || true
             
             if [[ "$TARGET_URL" =~ mega\.nz ]]; then
+              echo "[MEGA] Downloading via megadl..."
               megadl "$TARGET_URL" --path . || true
             elif [[ "$TARGET_URL" =~ pixeldrain\.com/u/([a-zA-Z0-9]+) ]]; then
+              echo "[PixelDrain] Downloading via curl API..."
               FILE_ID="${BASH_REMATCH[1]}"
               curl -L -O -J "https://pixeldrain.com/api/file/$FILE_ID" || true
             elif [[ "$TARGET_URL" =~ d\.tube ]]; then
-              echo "Downloading DTube via direct API & IPFS gateway..."
-              python3 -c "
-              import urllib.request, json, re
-              url = '$TARGET_URL'
-              match = re.search(r'v=([a-fA-F0-9\-]+)', url)
-              if match:
-                  vid_id = match.group(1)
-                  api_url = f'https://api.d.tube/video/{vid_id}'
+              echo "[DTube] Downloading via Python direct API & IPFS gateway..."
+              python3 -c "import urllib.request, json, re; url='$TARGET_URL'; m=re.search(r'v=([a-fA-F0-9\-]+)', url); 
+              if m:
                   try:
-                      req = urllib.request.Request(api_url, headers={'User-Agent': 'Mozilla/5.0'})
+                      print('Fetching DTube metadata for ID:', m.group(1))
+                      req = urllib.request.Request(f'https://api.d.tube/video/{m.group(1)}', headers={'User-Agent': 'Mozilla/5.0'})
                       data = json.loads(urllib.request.urlopen(req).read().decode('utf-8'))
-                      ipfs_hash = data.get('video', {}).get('files', {}).get('gateway', {}).get('ipfs') or data.get('video', {}).get('ipfs', {}).get('video')
-                      if ipfs_hash:
-                          stream_url = f'https://ipfs.d.tube/ipfs/{ipfs_hash}'
-                          print('Found DTube IPFS stream:', stream_url)
+                      ipfs = data.get('video', {}).get('files', {}).get('gateway', {}).get('ipfs') or data.get('video', {}).get('ipfs', {}).get('video')
+                      if ipfs:
+                          stream_url = f'https://ipfs.d.tube/ipfs/{ipfs}'
+                          print('Found DTube IPFS stream URL:', stream_url)
                           urllib.request.urlretrieve(stream_url, 'dtube_video.mp4')
+                          print('DTube download completed successfully.')
+                      else:
+                          print('Error: IPFS hash not found in DTube API response.')
                   except Exception as e:
-                      print('DTube download error:', e)
-              "
+                      print('DTube download failed with error:', e)
+              else:
+                  print('Error: Invalid DTube video ID format in URL.')"
             else
+              echo "[YouTube] Downloading via yt-dlp..."
               python3 -m pip install -U "yt-dlp[default,curl-cffi]" --pre || true
               
               FILENAME_TEMPLATE="%(title).50s_id-%(id)s.%(ext)s"
@@ -224,9 +228,11 @@ jobs:
                      -P "raw_videos" "$TARGET_URL" || true
             fi
             
+            echo "Moving downloaded files into input/ folder..."
             for downloaded_file in *; do
               if [[ "$downloaded_file" =~ \.(mp4|mkv|avi|mov|webm|flv|srt|ass)$ ]]; then
                 mv "$downloaded_file" input/
+                echo "Moved: $downloaded_file"
               fi
             done
             if [ -d "raw_videos" ]; then
@@ -235,7 +241,7 @@ jobs:
             fi
           fi
           
-          gateway copy DBOX:scripts ./scripts || rclone copy DBOX:scripts ./scripts
+          rclone copy DBOX:scripts ./scripts
           chmod +x ./scripts/convert_media.sh
           ./scripts/convert_media.sh
         env:
