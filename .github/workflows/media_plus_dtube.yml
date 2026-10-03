@@ -56,7 +56,6 @@ jobs:
         run: |
           sudo apt-get install -y jq p7zip-full unrar megatools python3-pip || true
           python3 -m pip install --upgrade pip || true
-          python3 -m pip install -U "yt-dlp[default,curl-cffi]" ytdlp-dtube --pre || true
           
           mkdir -p raw_videos downloads_temp
           cd downloads_temp
@@ -69,8 +68,25 @@ jobs:
             FILE_ID="${BASH_REMATCH[1]}"
             curl -L -O -J "https://pixeldrain.com/api/file/$FILE_ID" || true
           elif [[ "$FIRST_URL" =~ d\.tube ]]; then
-            python3 -m yt_dlp --no-playlist --restrict-filenames -o "dtube_file.%(ext)s" "$FIRST_URL" || true
+            python3 -c "
+            import urllib.request, json, re
+            url = '$FIRST_URL'
+            match = re.search(r'v=([a-fA-F0-9\-]+)', url)
+            if match:
+                vid_id = match.group(1)
+                api_url = f'https://api.d.tube/video/{vid_id}'
+                try:
+                    req = urllib.request.Request(api_url, headers={'User-Agent': 'Mozilla/5.0'})
+                    data = json.loads(urllib.request.urlopen(req).read().decode('utf-8'))
+                    ipfs_hash = data.get('video', {}).get('files', {}).get('gateway', {}).get('ipfs') or data.get('video', {}).get('ipfs', {}).get('video')
+                    if ipfs_hash:
+                        stream_url = f'https://ipfs.d.tube/ipfs/{ipfs_hash}'
+                        urllib.request.urlretrieve(stream_url, 'dtube_file.mp4')
+                except Exception as e:
+                    print('DTube matrix fetch error:', e)
+            " || true
           else
+            python3 -m pip install -U "yt-dlp[default,curl-cffi]" --pre || true
             python3 -m yt_dlp --no-playlist --restrict-filenames -o "first_file.%(ext)s" "$FIRST_URL" || true
           fi
           
@@ -169,7 +185,6 @@ jobs:
             
             sudo apt-get install -y megatools nodejs npm python3-pip || true
             python3 -m pip install --upgrade pip || true
-            python3 -m pip install -U "yt-dlp[default,curl-cffi]" ytdlp-dtube --pre || true
             
             if [[ "$TARGET_URL" =~ mega\.nz ]]; then
               megadl "$TARGET_URL" --path . || true
@@ -177,12 +192,28 @@ jobs:
               FILE_ID="${BASH_REMATCH[1]}"
               curl -L -O -J "https://pixeldrain.com/api/file/$FILE_ID" || true
             elif [[ "$TARGET_URL" =~ d\.tube ]]; then
-              echo "Downloading DTube via python3 -m yt_dlp with dtube plugin..."
-              FILENAME_TEMPLATE="%(title).50s_id-%(id)s.%(ext)s"
-              python3 -m yt_dlp --no-playlist --restrict-filenames \
-                     -o "$FILENAME_TEMPLATE" \
-                     -P "raw_videos" "$TARGET_URL" || true
+              echo "Downloading DTube via direct API & IPFS gateway..."
+              python3 -c "
+              import urllib.request, json, re
+              url = '$TARGET_URL'
+              match = re.search(r'v=([a-fA-F0-9\-]+)', url)
+              if match:
+                  vid_id = match.group(1)
+                  api_url = f'https://api.d.tube/video/{vid_id}'
+                  try:
+                      req = urllib.request.Request(api_url, headers={'User-Agent': 'Mozilla/5.0'})
+                      data = json.loads(urllib.request.urlopen(req).read().decode('utf-8'))
+                      ipfs_hash = data.get('video', {}).get('files', {}).get('gateway', {}).get('ipfs') or data.get('video', {}).get('ipfs', {}).get('video')
+                      if ipfs_hash:
+                          stream_url = f'https://ipfs.d.tube/ipfs/{ipfs_hash}'
+                          print('Found DTube IPFS stream:', stream_url)
+                          urllib.request.urlretrieve(stream_url, 'dtube_video.mp4')
+                  except Exception as e:
+                      print('DTube download error:', e)
+              "
             else
+              python3 -m pip install -U "yt-dlp[default,curl-cffi]" --pre || true
+              
               FILENAME_TEMPLATE="%(title).50s_id-%(id)s.%(ext)s"
               python3 -m yt_dlp --js-runtimes node \
                      --extractor-args "generic:impersonate;youtube:player_client=web_embedded" \
@@ -204,7 +235,7 @@ jobs:
             fi
           fi
           
-          rclone copy DBOX:scripts ./scripts
+          gateway copy DBOX:scripts ./scripts || rclone copy DBOX:scripts ./scripts
           chmod +x ./scripts/convert_media.sh
           ./scripts/convert_media.sh
         env:
