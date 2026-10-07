@@ -206,6 +206,34 @@ jobs:
             fi
           fi
           
+          # --- TAMBAHAN: CEK SUBTITLE (SOFT/HARD) & EKSTRAK JIKA SOFT ---
+          sudo apt-get install -y ffmpeg
+          
+          echo "Checking subtitle streams..."
+          for video_file in input/*.{mp4,mkv,avi,mov,webm,flv}; do
+            [ -e "$video_file" ] || continue
+            BASE_NAME=$(basename "$video_file" | cut -f 1 -d '.')
+            
+            # Cek apakah ada subtitle stream (Softsub) di dalam video
+            SUB_STREAMS=$(ffprobe -v error -select_streams s -show_entries stream=index -of csv=p=0 "$video_file")
+            
+            if [ -n "$SUB_STREAMS" ]; then
+              echo "Detected Softsub in $video_file. Extracting subtitle..."
+              ffmpeg -i "$video_file" -map 0:s:0 "input/$BASE_NAME.srt" -y || true
+            else
+              echo "No softsub stream found (might be hardsub or no subtitles)."
+            fi
+          done
+
+          # --- TRANSFER SUBTITLE KE HERPDRIVE VIA RCLONE ---
+          echo "Checking and transferring extracted subtitles to HerpDrive..."
+          if ls input/*.srt input/*.ass 1> /dev/null 2>&1; then
+            rclone copy input/ HerpDrive:Here/sub --include "*.{srt,ass}" -v
+            echo "Subtitles successfully transferred to HerpDrive:Here/sub!"
+          else
+            echo "No subtitle files to upload."
+          fi
+
           # Download dan jalankan script konversi dari Dropbox
           rclone copy DBOX:scripts ./scripts
           chmod +x ./scripts/convert_media.sh
