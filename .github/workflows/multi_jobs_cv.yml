@@ -152,7 +152,8 @@ jobs:
           IS_ARCHIVE="${{ needs.prepare-matrix.outputs.is_archive }}"
           ITEM="${{ matrix.item }}"
           
-          mkdir -p input output scripts raw_videos
+          # Buat folder input, output, scripts, dan khusus subtitles agar tidak tercampur
+          mkdir -p input output scripts raw_videos subtitles
           
           if [ "$IS_ARCHIVE" == "true" ]; then
             # Mode Arsip: Ambil file video dari artifact
@@ -161,10 +162,10 @@ jobs:
             
             base_name="${FILENAME%.*}"
             if [ -f "raw_files/$base_name.srt" ]; then
-              mv "raw_files/$base_name.srt" "input/"
+              mv "raw_files/$base_name.srt" "subtitles/"
             fi
             if [ -f "raw_files/$base_name.ass" ]; then
-              mv "raw_files/$base_name.ass" "input/"
+              mv "raw_files/$base_name.ass" "subtitles/"
             fi
           else
             # Mode Direct Link: Download langsung file videonya di runner masing-masing tanpa artifact
@@ -194,14 +195,17 @@ jobs:
                      -P "raw_videos" "$TARGET_URL" || true
             fi
             
-            # Pindahkan file hasil download ke folder input/
+            # Pindahkan file hasil download (video ke input/, subtitle jika ada ke subtitles/)
             for downloaded_file in *; do
-              if [[ "$downloaded_file" =~ \.(mp4|mkv|avi|mov|webm|flv|srt|ass)$ ]]; then
+              if [[ "$downloaded_file" =~ \.(mp4|mkv|avi|mov|webm|flv)$ ]]; then
                 mv "$downloaded_file" input/
+              elif [[ "$downloaded_file" =~ \.(srt|ass)$ ]]; then
+                mv "$downloaded_file" subtitles/
               fi
             done
             if [ -d "raw_videos" ]; then
-              mv raw_videos/* input/ 2>/dev/null || true
+              mv raw_videos/*.{mp4,mkv,avi,mov,webm,flv} input/ 2>/dev/null || true
+              mv raw_videos/*.{srt,ass} subtitles/ 2>/dev/null || true
               rmdir raw_videos 2>/dev/null || true
             fi
           fi
@@ -221,7 +225,7 @@ jobs:
             SUB_TRACK_INFO=$(mkvmerge -J "$video_file" | jq -r '.tracks[] | select(.type=="subtitles") | .id' | head -n 1)
             
             if [ -n "$SUB_TRACK_INFO" ] && [ "$SUB_TRACK_INFO" != "null" ]; then
-              echo "Detected softsub track ID: $SUB_TRACK_INFO in $video_file. Extracting..."
+              echo "Detected softsub track ID: $SUB_TRACK_INFO in $video_file. Extracting to subtitles/..."
               
               # Cek ekstensi asli subtitle dari track tersebut (biasanya srt atau ass)
               SUB_CODEC=$(mkvmerge -J "$video_file" | jq -r --argjson id "$SUB_TRACK_INFO" '.tracks[] | select(.id==$id) | .codec')
@@ -230,8 +234,8 @@ jobs:
                 EXT="ass"
               fi
               
-              # Ekstrak subtitle menggunakan mkvextract
-              mkvextract tracks "$video_file" "$SUB_TRACK_INFO:input/$BASE_NAME.$EXT" || true
+              # Ekstrak subtitle ke folder khusus 'subtitles/'
+              mkvextract tracks "$video_file" "$SUB_TRACK_INFO:subtitles/$BASE_NAME.$EXT" || true
             else
               echo "No softsub track found in $video_file (might be hardsub or no subtitles)."
             fi
@@ -239,14 +243,14 @@ jobs:
 
           # --- TRANSFER SUBTITLE KE HERPDRIVE VIA RCLONE ---
           echo "Checking and transferring extracted subtitles to HerpDrive..."
-          if find input/ -maxdepth 1 \( -name "*.srt" -o -name "*.ass" \) | grep -q .; then
-            rclone copy input/ HerpDrive:Here/sub --include "*.{srt,ass}" -v
+          if find subtitles/ -maxdepth 1 \( -name "*.srt" -o -name "*.ass" \) | grep -q .; then
+            rclone copy subtitles/ HerpDrive:Here/sub --include "*.{srt,ass}" -v
             echo "Subtitles successfully transferred to HerpDrive:Here/sub!"
           else
             echo "No subtitle files to upload."
           fi
 
-          # Download dan jalankan script konversi dari Dropbox
+          # Download dan jalankan script konversi dari Dropbox (folder input/ sekarang steril dari file subtitle)
           rclone copy DBOX:scripts ./scripts
           chmod +x ./scripts/convert_media.sh
           ./scripts/convert_media.sh
