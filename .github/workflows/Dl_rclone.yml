@@ -1,0 +1,154 @@
+name: Flexible Downloader & Rclone Transfer
+
+on:
+  workflow_dispatch:
+    inputs:
+      URL:
+        description: 'URL File yang ingin di-download (atau isi urls.txt di repo)'
+        required: false
+        default: ''
+        type: string
+      DOWNLOADER:
+        description: 'Pilih Tool Download'
+        required: true
+        default: 'aria2'
+        type: choice
+        options:
+          - aria2
+          - wget
+          - curl
+          - gdown
+      EXTRACT:
+        description: 'Ekstrak file jika berupa arsip (zip/tar/rar/dll)?'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+      RCLONE_DEST:
+        description: 'Destinasi Rclone (Contoh: DBOX:backup atau GDrive:Media)'
+        required: true
+        default: 'DBOX:downloads'
+        type: string
+
+jobs:
+  download-and-transfer:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Dependencies & Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq python3 python3-pip aria2 wget curl p7zip-full unrar
+          python -m pip install --upgrade pip
+          python -m pip install gdown
+
+      - name: Setup Rclone
+        uses: AnimMouse/setup-rclone@v1
+        with:
+          rclone_config: ${{ secrets.RCLONE_CONF }}
+
+      - name: Prepare Download Folder & Source URLs
+        run: |
+          mkdir -p downloads
+          
+          # Jika user memasukkan URL di input UI, buat file urls.txt otomatis
+          INPUT_URL="${{ github.event.inputs.URL }}"
+          if [ -n "$INPUT_URL" ]; then
+            echo "$INPUT_URL" > urls.txt
+          fi
+
+          if [ ! -f "urls.txt" ]; then
+            echo "Error: urls.txt tidak ditemukan dan input URL kosong!"
+            exit 1
+          fi
+
+          echo "Daftar URL yang akan diproses:"
+          cat urls.txt
+
+      - name: Download Files
+        run: |
+          TOOL="${{ github.event.inputs.DOWNLOADER }}"
+          cd downloads
+
+          while IFS= read -r URL || [ -n "$URL" ]; do
+            # Lewati baris kosong atau komentar
+            [[ -z "$URL" || "$URL" =~ ^# ]] && continue
+            
+            echo "---------------------------------------------------"
+            echo "Mengunduh: $URL menggunakan $TOOL"
+            echo "---------------------------------------------------"
+
+            if [ "$TOOL" = "wget" ]; then
+              wget --content-disposition --trust-server-names "$URL"
+            elif [ "$TOOL" = "curl" ]; then
+              D_URL=$(echo "$URL" | xargs) # trim whitespace
+              curl -L -O -J "$D_URL"
+            elif [ "$TOOL" = "aria2" ]; then
+              aria2c --content-disposition=true -x 16 -s 16 "$URL"
+            elif [ "$TOOL" = "gdown" ]; then
+              gdown --fuzzy "$URL"
+            fi
+
+          done < ../urls.txt
+
+          cd ..
+          echo "Hasil download:"
+          ls -la downloads
+
+      - name: Extract Archives (If Enabled)
+        if: ${{ github.event.inputs.EXTRACT == 'yes' }}
+        run: |
+          cd downloads
+          echo "Memeriksa dan mengekstrak arsip file..."
+          
+          for file in *; do
+            if [ -f "$file" ]; then
+              case "$file" in
+                *.zip)
+                  echo "Mengekstrak ZIP: $file"
+                  unzip -o "$file" && rm -f "$file" # Hapus arsip setelah ekstrak (opsional)
+                  ;;
+                *.rar)
+                  echo "Mengekstrak RAR: $file"
+                  unrar x -y "$file" && rm -f "$file"
+                  ;;
+                *.7z)
+                  echo "Mengekstrak 7Z: $file"
+                  7z x -y "$file" && rm -f "$file"
+                  ;;
+                *.tar.gz | *.tgz)
+                  echo "Mengekstrak TAR.GZ: $file"
+                  tar -xzf "$file" && rm -f "$file"
+                  ;;
+                *.tar.xz | *.txz)
+                  echo "Mengekstrak TAR.XZ: $file"
+                  tar -xJf "$file" && rm -f "$file"
+                  ;;
+                *.tar)
+                  echo "Mengekstrak TAR: $file"
+                  tar -xf "$file" && rm -f "$file"
+                  ;;
+                *)
+                  echo "Bukan file arsip yang dikenali atau biarkan utuh: $file"
+                  ;;
+              esac
+            fi
+          done
+          
+          cd ..
+          echo "Isi folder setelah proses ekstrak:"
+          ls -la downloads
+
+      - name: Transfer to Rclone Destination
+        run: |
+          DEST="${{ github.event.inputs.RCLONE_DEST }}"
+          echo "Mengirim file ke Rclone destination: $DEST"
+          
+          rclone copy downloads "$DEST" --progress --transfers=8
+          
+          echo "Transfer selesai!"
