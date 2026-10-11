@@ -152,7 +152,7 @@ jobs:
           IS_ARCHIVE="${{ needs.prepare-matrix.outputs.is_archive }}"
           ITEM="${{ matrix.item }}"
           
-          # Buat folder input, output, scripts, dan khusus subtitles agar tidak tercampur
+          # Buat folder input, output, scripts, raw_videos, dan subtitles
           mkdir -p input output scripts raw_videos subtitles
           
           if [ "$IS_ARCHIVE" == "true" ]; then
@@ -195,7 +195,7 @@ jobs:
                      -P "raw_videos" "$TARGET_URL" || true
             fi
             
-            # Pindahkan file hasil download (video ke input/, subtitle jika ada ke subtitles/)
+            # Pindahkan file hasil download (video ke input/, subtitle ke subtitles/)
             for downloaded_file in *; do
               if [[ "$downloaded_file" =~ \.(mp4|mkv|avi|mov|webm|flv)$ ]]; then
                 mv "$downloaded_file" input/
@@ -210,47 +210,55 @@ jobs:
             fi
           fi
           
-          # --- CEK & EKSTRAK SUBTITLE MENGGUNAKAN MKVTOOLNIX ---
-          sudo apt-get install -y mkvtoolnix
+          # --- CEK, EKSTRAK, DAN KONVERSI SUBTITLE KE SRT (MENGGUNAKAN MKVTOOLNIX & FFMPEG) ---
+          sudo apt-get install -y mkvtoolnix ffmpeg
           
           echo "Checking MKV subtitle tracks..."
           for video_file in input/*.mkv; do
             [ -e "$video_file" ] || continue
             
-            # Ambil nama file asli dan tentukan base name yang aman dari titik/karakter aneh
             FILENAME_WITH_PATH=$(basename "$video_file")
             BASE_NAME="${FILENAME_WITH_PATH%.mkv}"
             
-            # Mendeteksi ID track subtitle pertama yang berformat teks (Subtitles) menggunakan mkvmerge
             SUB_TRACK_INFO=$(mkvmerge -J "$video_file" | jq -r '.tracks[] | select(.type=="subtitles") | .id' | head -n 1)
             
             if [ -n "$SUB_TRACK_INFO" ] && [ "$SUB_TRACK_INFO" != "null" ]; then
-              echo "Detected softsub track ID: $SUB_TRACK_INFO in $video_file. Extracting to subtitles/..."
+              echo "Detected softsub track ID: $SUB_TRACK_INFO in $video_file. Extracting..."
               
-              # Cek ekstensi asli subtitle dari track tersebut (biasanya srt atau ass)
               SUB_CODEC=$(mkvmerge -J "$video_file" | jq -r --argjson id "$SUB_TRACK_INFO" '.tracks[] | select(.id==$id) | .codec')
+              
               EXT="srt"
               if [[ "$SUB_CODEC" =~ SubStationAlpha|ASS ]]; then
                 EXT="ass"
+              elif [[ "$SUB_CODEC" =~ SSA ]]; then
+                EXT="ssa"
+              elif [[ "$SUB_CODEC" =~ WEBVTT ]]; then
+                EXT="vtt"
               fi
               
-              # Ekstrak subtitle ke folder khusus 'subtitles/'
+              # 1. Ekstrak format aslinya ke folder subtitles/
               mkvextract tracks "$video_file" "$SUB_TRACK_INFO:subtitles/$BASE_NAME.$EXT" || true
+              
+              # 2. Jika format aslinya bukan srt, otomatis buat duplikatnya dalam bentuk .srt pakai ffmpeg
+              if [ "$EXT" != "srt" ] && [ -f "subtitles/$BASE_NAME.$EXT" ]; then
+                echo "Converting $EXT subtitle to .srt format..."
+                ffmpeg -i "subtitles/$BASE_NAME.$EXT" "subtitles/$BASE_NAME.srt" -y || true
+              fi
             else
-              echo "No softsub track found in $video_file (might be hardsub or no subtitles)."
+              echo "No softsub text track found in $video_file."
             fi
           done
 
           # --- TRANSFER SUBTITLE KE HERPDRIVE VIA RCLONE ---
           echo "Checking and transferring extracted subtitles to HerpDrive..."
-          if find subtitles/ -maxdepth 1 \( -name "*.srt" -o -name "*.ass" \) | grep -q .; then
-            rclone copy subtitles/ HerpDrive:Here/sub --include "*.{srt,ass}" -v
+          if find subtitles/ -maxdepth 1 \( -name "*.srt" -o -name "*.ass" -o -name "*.ssa" -o -name "*.vtt" \) | grep -q .; then
+            rclone copy subtitles/ HerpDrive:Here/sub --include "*.{srt,ass,ssa,vtt}" -v
             echo "Subtitles successfully transferred to HerpDrive:Here/sub!"
           else
             echo "No subtitle files to upload."
           fi
 
-          # Download dan jalankan script konversi dari Dropbox (folder input/ sekarang steril dari file subtitle)
+          # Download dan jalankan script konversi dari Dropbox
           rclone copy DBOX:scripts ./scripts
           chmod +x ./scripts/convert_media.sh
           ./scripts/convert_media.sh
