@@ -73,7 +73,7 @@ jobs:
         run: |
           TOOL="${{ github.event.inputs.DOWNLOADER }}"
           
-          # Membuat file skrip python pembantu agar bersih dari garis merah YAML
+          # Buat skrip python untuk ambil direct link MediaFire yang bersih
           cat << 'EOF' > get_mf.py
           import sys, requests, re
           from bs4 import BeautifulSoup
@@ -94,6 +94,9 @@ jobs:
               print('')
           EOF
 
+          # Bersihkan folder lokal runner GitHub sebelum mulai download baru
+          rm -rf downloads/*
+          mkdir -p downloads
           cd downloads
 
           while IFS= read -r URL || [ -n "$URL" ]; do
@@ -107,14 +110,13 @@ jobs:
 
             if [[ "$URL" == *"mediafire.com"* ]]; then
               echo "Mendeteksi link MediaFire, mengekstrak direct link..."
-              
               DIRECT_URL=$(python3 ../get_mf.py "$URL")
 
               if [ -n "$DIRECT_URL" ]; then
                 echo "Direct link berhasil didapatkan: $DIRECT_URL"
                 URL="$DIRECT_URL"
               else
-                echo "Peringatan: Gagal mengekstrak direct link otomatis, mencoba menggunakan URL mentah..."
+                echo "Peringatan: Gagal mendapatkan direct link otomatis, menggunakan URL mentah..."
               fi
             fi
 
@@ -123,16 +125,19 @@ jobs:
             elif [ "$TOOL" = "curl" ]; then
               curl -L -O -J -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$URL"
             elif [ "$TOOL" = "aria2" ]; then
-              aria2c --content-disposition=true --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)" --header="Referer: https://www.mediafire.com/" -x 16 -s 16 "$URL"
+              aria2c --content-disposition=true --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)" --header="Referer: https://www.mediafire.com/" -x 8 -s 8 "$URL"
             elif [ "$TOOL" = "gdown" ]; then
               gdown --fuzzy "$URL"
             fi
 
           done < ../urls.txt
 
+          # Hapus file sampah tak kasat mata jika ada
+          rm -f *.php *.html *.htm *.txt
+
           cd ..
           rm -f get_mf.py
-          echo "Hasil download:"
+          echo "Hasil download bersih di folder lokal:"
           ls -la downloads
 
       - name: Extract Archives (If Enabled)
@@ -184,6 +189,7 @@ jobs:
           DEST="${{ github.event.inputs.RCLONE_DEST }}"
           echo "Mengirim file ke Rclone destination: $DEST"
           
-          rclone copy downloads "$DEST" --progress --transfers=8
+          # Menggunakan flag tambahan agar rclone tidak mudah hang/timeout
+          rclone copy downloads "$DEST" --progress --transfers=4 --checkers=4 --timeout=30m --contimeout=60s
           
           echo "Transfer selesai!"
