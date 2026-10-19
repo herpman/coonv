@@ -45,7 +45,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq python3 python3-pip aria2 wget curl p7zip-full unrar
           python -m pip install --upgrade pip
-          # Menambahkan requests & beautifulsoup4 untuk parser direct-link MediaFire
           python -m pip install gdown requests beautifulsoup4
 
       - name: Setup Rclone
@@ -57,7 +56,6 @@ jobs:
         run: |
           mkdir -p downloads
           
-          # Jika user memasukkan URL di input UI, buat file urls.txt otomatis
           INPUT_URL="${{ github.event.inputs.URL }}"
           if [ -n "$INPUT_URL" ]; then
             echo "$INPUT_URL" > urls.txt
@@ -77,45 +75,40 @@ jobs:
           cd downloads
 
           while IFS= read -r URL || [ -n "$URL" ]; do
-            # Lewati baris kosong atau komentar
             [[ -z "$URL" || "$URL" =~ ^# ]] && continue
             
-            # Trim whitespace dari URL
             URL=$(echo "$URL" | xargs)
 
             echo "---------------------------------------------------"
             echo "Memproses: $URL menggunakan $TOOL"
             echo "---------------------------------------------------"
 
-            # Tangani link MediaFire agar mengambil direct link aslinya via Python
             if [[ "$URL" == *"mediafire.com"* ]]; then
-              echo "Mendeteksi link MediaFire, mengekstrak direct link secara otomatis..."
+              echo "Mendeteksi link MediaFire, mengekstrak direct link..."
               
-              DIRECT_URL=$(python3 -c "
+              DIRECT_URL=$(python3 -c '
 import requests, re
 from bs4 import BeautifulSoup
+import sys
 
-url = '$URL'
-headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+url = sys.argv[1]
+headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
 try:
-    res = requests.get(url, headers=headers)
-    soup = BeautifulSoup(res.text, 'html.parser')
-    
-    # Cari tombol download MediaFire
-    download_btn = soup.find('a', {'id': 'downloadButton'})
-    if download_btn and 'href' in download_btn.attrs:
-        print(download_btn['href'])
+    res = requests.get(url, headers=headers, timeout=15)
+    soup = BeautifulSoup(res.text, "html.parser")
+    download_btn = soup.find("a", {"id": "downloadButton"})
+    if download_btn and "href" in download_btn.attrs:
+        print(download_btn["href"])
     else:
-        # Fallback mencari pola link download langsung via regex
-        links = re.findall(r'https?://download\d+\.mediafire\.com/[^\s\"\']+', res.text)
+        links = re.findall(r"https?://download\d+\.mediafire\.com/[^\s\"\']+", res.text)
         if links:
             print(links[0])
         else:
-            print('')
-except Exception as e:
-    print('')
-")
+            print("")
+except Exception:
+    print("")
+' "$URL")
 
               if [ -n "$DIRECT_URL" ]; then
                 echo "Direct link berhasil didapatkan: $DIRECT_URL"
@@ -125,7 +118,6 @@ except Exception as e:
               fi
             fi
 
-            # Proses Eksekusi Download Berdasarkan Tool Pilihan
             if [ "$TOOL" = "wget" ]; then
               wget --content-disposition --trust-server-names --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$URL"
             elif [ "$TOOL" = "curl" ]; then
