@@ -55,14 +55,45 @@ jobs:
         id: set-matrix
         run: |
           sudo apt-get update
-          sudo apt-get install -y jq p7zip-full unrar megatools
+          sudo apt-get install -y jq p7zip-full unrar megatools python3 python3-pip
+          python -m pip install requests beautifulsoup4
           
+          # Buat skrip python pembantu untuk MediaFire
+          cat << 'EOF' > get_mf.py
+          import sys, requests, re
+          from bs4 import BeautifulSoup
+
+          url = sys.argv[1]
+          headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+
+          try:
+              res = requests.get(url, headers=headers, timeout=15)
+              soup = BeautifulSoup(res.text, 'html.parser')
+              btn = soup.find('a', {'id': 'downloadButton'})
+              if btn and 'href' in btn.attrs:
+                  print(btn['href'])
+              else:
+                  links = re.findall(r'https?://download\d+\.mediafire\.com/[^\s\"\']+', res.text)
+                  print(links[0] if links else '')
+          except Exception:
+              print('')
+          EOF
+
           mkdir -p raw_videos downloads_temp
           cd downloads_temp
           
           # Baca baris pertama yt_urls.txt
           FIRST_URL=$(grep -v '^#' ../yt_urls.txt | awk NF | head -n 1)
           
+          if [[ "$FIRST_URL" == *"mediafire.com"* ]]; then
+            echo "Mendeteksi link MediaFire pada file pertama..."
+            DIRECT_MF=$(python3 ../get_mf.py "$FIRST_URL")
+            if [ -n "$DIRECT_MF" ]; then
+              FIRST_URL="$DIRECT_MF"
+              echo "Direct Link MediaFire didapatkan: $FIRST_URL"
+            fi
+          fi
+
           # Download file pertama ke folder temporary
           if [[ "$FIRST_URL" =~ mega\.nz ]]; then
             megadl "$FIRST_URL" --path .
@@ -70,7 +101,7 @@ jobs:
             FILE_ID="${BASH_REMATCH[1]}"
             curl -L -O -J "https://pixeldrain.com/api/file/$FILE_ID"
           else
-            curl -L -O -J "$FIRST_URL" || true
+            curl -L -O -J --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$FIRST_URL" || true
           fi
           
           # Cek file apa yang baru saja didownload
@@ -83,6 +114,7 @@ jobs:
           done
           
           cd ..
+          rm -f get_mf.py
           
           if [ "$IS_ARCHIVE_FILE" = true ]; then
             echo "is_archive=true" >> $GITHUB_OUTPUT
@@ -173,15 +205,49 @@ jobs:
             echo "Downloading media from URL: $TARGET_URL"
             
             sudo apt-get update
-            sudo apt-get install -y megatools
+            sudo apt-get install -y megatools python3 python3-pip
+            python -m pip install requests beautifulsoup4
+            
+            # Buat skrip python pembantu untuk MediaFire
+            cat << 'EOF' > get_mf.py
+            import sys, requests, re
+            from bs4 import BeautifulSoup
+
+            url = sys.argv[1]
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+
+            try:
+                res = requests.get(url, headers=headers, timeout=15)
+                soup = BeautifulSoup(res.text, 'html.parser')
+                btn = soup.find('a', {'id': 'downloadButton'})
+                if btn and 'href' in btn.attrs:
+                    print(btn['href'])
+                else:
+                    links = re.findall(r'https?://download\d+\.mediafire\.com/[^\s\"\']+', res.text)
+                    print(links[0] if links else '')
+            except Exception:
+                print('')
+            EOF
+            
+            if [[ "$TARGET_URL" == *"mediafire.com"* ]]; then
+              echo "Mendeteksi link MediaFire pada target URL..."
+              DIRECT_MF=$(python3 get_mf.py "$TARGET_URL")
+              if [ -n "$DIRECT_MF" ]; then
+                TARGET_URL="$DIRECT_MF"
+                echo "Direct Link MediaFire didapatkan: $TARGET_URL"
+              fi
+            fi
+            rm -f get_mf.py
             
             if [[ "$TARGET_URL" =~ mega\.nz ]]; then
               megadl "$TARGET_URL" --path .
             elif [[ "$TARGET_URL" =~ pixeldrain\.com/u/([a-zA-Z0-9]+) ]]; then
               FILE_ID="${BASH_REMATCH[1]}"
               curl -L -O -J "https://pixeldrain.com/api/file/$FILE_ID"
+            elif [[ "$TARGET_URL" == *"download"*".mediafire.com"* ]] || [[ "$TARGET_URL" =~ \.(mp4|mkv|avi|mov|webm|flv)$ ]]; then
+              curl -L -O -J --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$TARGET_URL"
             else
-              sudo apt-get install -y nodejs npm python3 python3-pip
+              sudo apt-get install -y nodejs npm
               python -m pip install -U "yt-dlp[default,curl-cffi]" yt-dlp-ejs --pre
               yt-dlp --update-to nightly
               
