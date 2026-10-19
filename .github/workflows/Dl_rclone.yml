@@ -29,7 +29,7 @@ on:
       RCLONE_DEST:
         description: 'Destinasi Rclone (Contoh: DBOX:backup atau GDrive:Media)'
         required: true
-        default: 'DBOX:downloads'
+        default: 'SujaDrive:downloads'
         type: string
 
 jobs:
