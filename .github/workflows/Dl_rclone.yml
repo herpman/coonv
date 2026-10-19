@@ -45,7 +45,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq python3 python3-pip aria2 wget curl p7zip-full unrar
           python -m pip install --upgrade pip
-          python -m pip install gdown
+          # Menambahkan requests & beautifulsoup4 untuk parser direct-link MediaFire
+          python -m pip install gdown requests beautifulsoup4
 
       - name: Setup Rclone
         uses: AnimMouse/setup-rclone@v1
@@ -79,17 +80,58 @@ jobs:
             # Lewati baris kosong atau komentar
             [[ -z "$URL" || "$URL" =~ ^# ]] && continue
             
+            # Trim whitespace dari URL
+            URL=$(echo "$URL" | xargs)
+
             echo "---------------------------------------------------"
-            echo "Mengunduh: $URL menggunakan $TOOL"
+            echo "Memproses: $URL menggunakan $TOOL"
             echo "---------------------------------------------------"
 
+            # Tangani link MediaFire agar mengambil direct link aslinya via Python
+            if [[ "$URL" == *"mediafire.com"* ]]; then
+              echo "Mendeteksi link MediaFire, mengekstrak direct link secara otomatis..."
+              
+              DIRECT_URL=$(python3 -c "
+import requests, re
+from bs4 import BeautifulSoup
+
+url = '$URL'
+headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+
+try:
+    res = requests.get(url, headers=headers)
+    soup = BeautifulSoup(res.text, 'html.parser')
+    
+    # Cari tombol download MediaFire
+    download_btn = soup.find('a', {'id': 'downloadButton'})
+    if download_btn and 'href' in download_btn.attrs:
+        print(download_btn['href'])
+    else:
+        # Fallback mencari pola link download langsung via regex
+        links = re.findall(r'https?://download\d+\.mediafire\.com/[^\s\"\']+', res.text)
+        if links:
+            print(links[0])
+        else:
+            print('')
+except Exception as e:
+    print('')
+")
+
+              if [ -n "$DIRECT_URL" ]; then
+                echo "Direct link berhasil didapatkan: $DIRECT_URL"
+                URL="$DIRECT_URL"
+              else
+                echo "Peringatan: Gagal mengekstrak direct link otomatis, mencoba menggunakan URL mentah..."
+              fi
+            fi
+
+            # Proses Eksekusi Download Berdasarkan Tool Pilihan
             if [ "$TOOL" = "wget" ]; then
-              wget --content-disposition --trust-server-names "$URL"
+              wget --content-disposition --trust-server-names --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$URL"
             elif [ "$TOOL" = "curl" ]; then
-              D_URL=$(echo "$URL" | xargs) # trim whitespace
-              curl -L -O -J "$D_URL"
+              curl -L -O -J -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$URL"
             elif [ "$TOOL" = "aria2" ]; then
-              aria2c --content-disposition=true -x 16 -s 16 "$URL"
+              aria2c --content-disposition=true --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)" --header="Referer: https://www.mediafire.com/" -x 16 -s 16 "$URL"
             elif [ "$TOOL" = "gdown" ]; then
               gdown --fuzzy "$URL"
             fi
@@ -111,7 +153,7 @@ jobs:
               case "$file" in
                 *.zip)
                   echo "Mengekstrak ZIP: $file"
-                  unzip -o "$file" && rm -f "$file" # Hapus arsip setelah ekstrak (opsional)
+                  unzip -o "$file" && rm -f "$file"
                   ;;
                 *.rar)
                   echo "Mengekstrak RAR: $file"
