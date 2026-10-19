@@ -52,9 +52,11 @@ jobs:
         with:
           rclone_config: ${{ secrets.RCLONE_CONF }}
 
-      - name: Prepare Download Folder & Source URLs
+      - name: Prepare Folders & Source URLs
         run: |
-          mkdir -p downloads
+          # Buat dua folder terpisah: Folder A (downloads) & Folder B (ready_to_upload)
+          rm -rf downloads ready_to_upload
+          mkdir -p downloads ready_to_upload
           
           INPUT_URL="${{ github.event.inputs.URL }}"
           if [ -n "$INPUT_URL" ]; then
@@ -69,11 +71,10 @@ jobs:
           echo "Daftar URL yang akan diproses:"
           cat urls.txt
 
-      - name: Download Files
+      - name: Download Files to Folder A
         run: |
           TOOL="${{ github.event.inputs.DOWNLOADER }}"
           
-          # Buat skrip python untuk ambil direct link MediaFire yang bersih
           cat << 'EOF' > get_mf.py
           import sys, requests, re
           from bs4 import BeautifulSoup
@@ -94,9 +95,6 @@ jobs:
               print('')
           EOF
 
-          # Bersihkan folder lokal runner GitHub sebelum mulai download baru
-          rm -rf downloads/*
-          mkdir -p downloads
           cd downloads
 
           while IFS= read -r URL || [ -n "$URL" ]; do
@@ -125,26 +123,36 @@ jobs:
             elif [ "$TOOL" = "curl" ]; then
               curl -L -O -J -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$URL"
             elif [ "$TOOL" = "aria2" ]; then
-              aria2c --content-disposition=true --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)" --header="Referer: https://www.mediafire.com/" -x 8 -s 8 "$URL"
+              aria2c --content-disposition=true --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)" --header="Referer: https://www.mediafire.com/" "$URL"
             elif [ "$TOOL" = "gdown" ]; then
               gdown --fuzzy "$URL"
             fi
 
           done < ../urls.txt
 
-          # Hapus file sampah tak kasat mata jika ada
-          rm -f *.php *.html *.htm *.txt
+          # Hapus file sampah/kontrol sisa unduhan di Folder A
+          rm -f *.php *.html *.htm *.aria2
 
           cd ..
           rm -f get_mf.py
-          echo "Hasil download bersih di folder lokal:"
+          echo "Isi Folder A (downloads) setelah diunduh:"
           ls -la downloads
 
-      - name: Extract Archives (If Enabled)
+      - name: Move All Files to Folder B (Ready to Upload)
+        run: |
+          echo "Memindahkan seluruh file hasil download ke Folder B..."
+          
+          # Pindahkan semua file (apapun jenis formatnya) kecuali file teks konfigurasi/urls
+          find downloads -maxdepth 1 -type f ! -name "*.txt" -exec mv {} ready_to_upload/ \;
+
+          echo "Isi Folder B (ready_to_upload):"
+          ls -la ready_to_upload
+
+      - name: Extract Archives in Folder B (If Enabled)
         if: ${{ github.event.inputs.EXTRACT == 'yes' }}
         run: |
-          cd downloads
-          echo "Memeriksa dan mengekstrak arsip file..."
+          cd ready_to_upload
+          echo "Memeriksa dan mengekstrak arsip file di Folder B..."
           
           for file in *; do
             if [ -f "$file" ]; then
@@ -174,22 +182,22 @@ jobs:
                   tar -xf "$file" && rm -f "$file"
                   ;;
                 *)
-                  echo "Bukan file arsip yang dikenali atau biarkan utuh: $file"
+                  echo "Bukan file arsip, biarkan utuh: $file"
                   ;;
               esac
             fi
           done
           
           cd ..
-          echo "Isi folder setelah proses ekstrak:"
-          ls -la downloads
+          echo "Isi akhir Folder B setelah ekstraksi (siap dikirim):"
+          ls -la ready_to_upload
 
-      - name: Transfer to Rclone Destination
+      - name: Transfer to Rclone Destination from Folder B
         run: |
           DEST="${{ github.event.inputs.RCLONE_DEST }}"
-          echo "Mengirim file ke Rclone destination: $DEST"
+          echo "Mengirim semua isi Folder B ke Rclone destination: $DEST"
           
-          # Menggunakan flag tambahan agar rclone tidak mudah hang/timeout
-          rclone copy downloads "$DEST" --progress --transfers=4 --checkers=4 --timeout=30m --contimeout=60s
+          # Rclone meng-upload seluruh isi Folder B apa adanya tanpa batasan ekstensi
+          rclone copy ready_to_upload "$DEST" --progress --transfers=4 --checkers=4 --timeout=30m --contimeout=60s
           
           echo "Transfer selesai!"
