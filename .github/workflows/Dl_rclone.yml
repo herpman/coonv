@@ -72,6 +72,28 @@ jobs:
       - name: Download Files
         run: |
           TOOL="${{ github.event.inputs.DOWNLOADER }}"
+          
+          # Membuat file skrip python pembantu agar bersih dari garis merah YAML
+          cat << 'EOF' > get_mf.py
+          import sys, requests, re
+          from bs4 import BeautifulSoup
+
+          url = sys.argv[1]
+          headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+
+          try:
+              res = requests.get(url, headers=headers, timeout=15)
+              soup = BeautifulSoup(res.text, 'html.parser')
+              btn = soup.find('a', {'id': 'downloadButton'})
+              if btn and 'href' in btn.attrs:
+                  print(btn['href'])
+              else:
+                  links = re.findall(r'https?://download\d+\.mediafire\.com/[^\s\"\']+', res.text)
+                  print(links[0] if links else '')
+          except Exception:
+              print('')
+          EOF
+
           cd downloads
 
           while IFS= read -r URL || [ -n "$URL" ]; do
@@ -86,28 +108,7 @@ jobs:
             if [[ "$URL" == *"mediafire.com"* ]]; then
               echo "Mendeteksi link MediaFire, mengekstrak direct link..."
               
-              cat << 'EOF' > get_mf.py
-import sys, requests, re
-from bs4 import BeautifulSoup
-
-url = sys.argv[1]
-headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-
-try:
-    res = requests.get(url, headers=headers, timeout=15)
-    soup = BeautifulSoup(res.text, 'html.parser')
-    btn = soup.find('a', {'id': 'downloadButton'})
-    if btn and 'href' in btn.attrs:
-        print(btn['href'])
-    else:
-        links = re.findall(r'https?://download\d+\.mediafire\.com/[^\s\"\']+', res.text)
-        print(links[0] if links else '')
-except Exception:
-    print('')
-EOF
-
-              DIRECT_URL=$(python3 get_mf.py "$URL")
-              rm -f get_mf.py
+              DIRECT_URL=$(python3 ../get_mf.py "$URL")
 
               if [ -n "$DIRECT_URL" ]; then
                 echo "Direct link berhasil didapatkan: $DIRECT_URL"
@@ -130,6 +131,7 @@ EOF
           done < ../urls.txt
 
           cd ..
+          rm -f get_mf.py
           echo "Hasil download:"
           ls -la downloads
 
