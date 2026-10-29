@@ -40,7 +40,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Rclone
-        uses: animalll/setup-rclone@v1 # Atau bisa instal manual via apt
+        uses: AnimMouse/setup-rclone@v1 # Atau bisa instal manual via apt
         with:
           rclone-version: 'latest'
 
