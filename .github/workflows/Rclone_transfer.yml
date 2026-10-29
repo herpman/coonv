@@ -1,0 +1,60 @@
+name: Rclone Transfer Workflow
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_remote:
+        description: 'Nama Remote Asal (contoh: gdrive1)'
+        required: true
+        default: 'gdrive1'
+        type: string
+      source_path:
+        description: 'Path File/Folder Asal (contoh: backup/data.zip atau folder_a)'
+        required: true
+        type: string
+      dest_remote:
+        description: 'Nama Remote Tujuan (contoh: gdrive2)'
+        required: true
+        default: 'gdrive2'
+        type: string
+      dest_path:
+        description: 'Path Folder Tujuan (contoh: arsip/)'
+        required: true
+        type: string
+      transfer_mode:
+        description: 'Pilih Mode Rclone'
+        required: true
+        default: 'copy'
+        type: choice
+        options:
+          - copy
+          - move
+          - sync
+
+jobs:
+  rclone-transfer:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rclone
+        uses: animalll/setup-rclone@v1 # Atau bisa instal manual via apt
+        with:
+          rclone-version: 'latest'
+
+      - name: Create Rclone Config File
+        run: |
+          mkdir -p ~/.config/rclone
+          echo "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
+
+      - name: Run Rclone Transfer
+        run: |
+          echo "Memulai proses ${{ inputs.transfer_mode }} dari ${{ inputs.source_remote }}:${{ inputs.source_path }} ke ${{ inputs.dest_remote }}:${{ inputs.dest_path }}"
+          
+          rclone ${{ inputs.transfer_mode }} \
+            "${{ inputs.source_remote }}:${{ inputs.source_path }}" \
+            "${{ inputs.dest_remote }}:${{ inputs.dest_path }}" \
+            --progress \
+            --transfers 4
