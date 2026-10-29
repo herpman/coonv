@@ -36,18 +36,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v5
 
       - name: Setup Rclone
-        uses: AnimMouse/setup-rclone@v1 # Atau bisa instal manual via apt
+        uses: AnimMouse/setup-rclone@v1
         with:
-          rclone-version: 'latest'
-
-      - name: Create Rclone Config File
-        run: |
-          mkdir -p ~/.config/rclone
-          echo "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
+          rclone_config: ${{ secrets.RCLONE_CONF }}
 
       - name: Run Rclone Transfer
         run: |
