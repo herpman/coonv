@@ -1,0 +1,84 @@
+name: Download Wii U Game, Convert to WUA & Upload
+
+on:
+  workflow_dispatch:
+    inputs:
+      title_id:
+        description: 'Masukkan Title ID Game (Contoh Bayonetta 1 USA: 0005000010173600)'
+        required: true
+        type: string
+      rclone_dest:
+        description: 'Destinasi Rclone (Contoh: gdrive:/GameWiiU atau mega:/Backup)'
+        required: true
+        type: string
+      download_dlc_updates:
+        description: 'Download Update & DLC sekaligus?'
+        required: true
+        type: boolean
+        default: true
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 1. Bebaskan Disk Space di GitHub Runner
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          df -h
+
+      - name: 2. Install Dependencies (WiiUDownloader CLI)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget unzip p7zip-full
+          
+          # Download WiiUDownloader CLI
+          wget https://github.com/Xpl0itU/WiiUDownloader/releases/latest/download/WiiUDownloader-Linux-x86_64.AppImage -O wiiupc
+          chmod +x wiiupc
+
+      - name: 3. Setup Rclone
+        uses: AnimMouse/setup-rclone@v1
+        with:
+          rclone_config: ${{ secrets.RCLONE_CONF }}
+
+      - name: 4. Download Game Wii U
+        run: |
+          mkdir -p ./downloads
+          EXTRA_FLAGS=""
+          if [ "${{ inputs.download_dlc_updates }}" = "true" ]; then
+            EXTRA_FLAGS="--dlc --update"
+          fi
+          
+          # Ekstrak AppImage dan Jalankan CLI Download
+          ./wiiupc --appimage-extract
+          ./squashfs-root/AppRun -t "${{ inputs.title_id }}" -o ./downloads $EXTRA_FLAGS --decrypt
+
+      - name: 5. Kompresi Folder Mentah ke WUA
+        run: |
+          mkdir -p ./output_wua
+          
+          # Download tool kompresi wua / Cemu CLI helper
+          wget https://github.com/cemu-project/Cemu/releases/latest/download/cemu-2.0-linux-x86_64.AppImage -O cemu
+          chmod +x cemu
+          ./cemu --appimage-extract
+          
+          # Konversi folder ke .wua
+          for dir in ./downloads/*/; do
+            if [ -d "$dir" ]; then
+              dirname=$(basename "$dir")
+              echo "Mengompres $dirname ke WUA..."
+              ./squashfs-root/AppRun --compress-title "$dir" -o "./output_wua/${dirname}.wua"
+              # Hapus folder mentah setelah selesai dikompres agar memori hemat
+              rm -rf "$dir"
+            fi
+          done
+
+      - name: 6. Upload .WUA ke Rclone Destinasi
+        run: |
+          rclone copy ./output_wua "${{ inputs.rclone_dest }}" --progress --transfers 4
+
+      - name: 7. Bersihkan Sisa File
+        run: rm -rf ./output_wua downloads squashfs-root cemu wiiupc
