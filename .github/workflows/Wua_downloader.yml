@@ -11,6 +11,11 @@ on:
         description: 'Destinasi Rclone (Contoh: gdrive:/GameWiiU atau mega:/Backup)'
         required: true
         type: string
+      download_dlc_updates:
+        description: 'Download Update & DLC sekaligus?'
+        required: true
+        type: boolean
+        default: true
 
 jobs:
   build-and-upload:
@@ -25,79 +30,55 @@ jobs:
           sudo rm -rf /usr/local/share/boost
           df -h
 
-      - name: 2. Install Dependencies (Python, Wimm/Cemu Tools & Rclone)
+      - name: 2. Install Dependencies (Virtual Display & Tools)
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget unzip p7zip-full python3-pip python3-requests python3-tqdm
-          pip3 install pycryptodome requests
+          sudo apt-get install -y wget unzip p7zip-full xvfb
+          
+          # Download Wii U Downloader versi Linux AppImage
+          wget https://github.com/Xpl0itU/WiiUDownloader/releases/latest/download/WiiUDownloader-Linux-x86_64.AppImage -O wiiupc
+          chmod +x wiiupc
 
       - name: 3. Setup Rclone
         uses: AnimMouse/setup-rclone@v1
         with:
           rclone_config: ${{ secrets.RCLONE_CONF }}
 
-      - name: 4. Download Game Wii U via NUS Fetcher (Python CLI)
+      - name: 4. Download Game Wii U via Wii U Downloader
         run: |
-          mkdir -p ./downloads/game
+          mkdir -p ./downloads
+          EXTRA_FLAGS=""
+          if [ "${{ inputs.download_dlc_updates }}" = "true" ]; then
+            EXTRA_FLAGS="--dlc --update"
+          fi
           
-          # Menggunakan skrip python open-source khusus unduh NUS Wii U
-          cat << 'EOF' > nus_downloader.py
-          import sys, os, requests, hashlib
-          from Crypto.Cipher import AES
+          # Ekstrak AppImage dan jalankan via xvfb-run
+          ./wiiupc --appimage-extract
+          xvfb-run ./squashfs-root/AppRun -t "${{ inputs.title_id }}" -o ./downloads $EXTRA_FLAGS --decrypt
 
-          title_id = "${{ inputs.title_id }}"
-          print(f"Memulai proses download Title ID: {title_id} dari NUS Nintendo...")
-          
-          # Menggunakan endpoint open-source NUS CDN
-          # Karena struktur NUS standar, kita tarik title key dari TitleDB secara otomatis
-          tikey_url = f"https://titlekeys.ovh/json"
-          try:
-              res = requests.get(tikey_url).json()
-              key = ""
-              for item in res:
-                  if item.get("titleId", "").lower() == title_id.lower():
-                      key = item.get("key", "")
-                      break
-              print(f"Ditemukan Title Key: {key if key else 'Free/Encrypted public'}")
-          except Exception as e:
-              print("Warning: Gagal mengambil key otomatis, mencoba lanjut...")
-
-          print("Download selesai disiapkan.")
-          EOF
-          
-          python3 nus_downloader.py
-          
-          # Sebagai cadangan jika script custom di atas butuh clone tool downloader handal:
-          git clone https://github.com/Xpl0itU/WiiUDownloader.git --depth=1
-          cd WiiUDownloader
-          # Install dependensi node/ dotnet jika dibutuhkan, atau jalankan versi python jika ada
-          cd ..
-
-      - name: 5. Kompresi Folder ke WUA
+      - name: 5. Kompresi Folder ke Format WUA
         run: |
           mkdir -p ./output_wua
           
-          # Download Cemu CLI untuk konversi ke WUA
-          wget https://github.com/cemu-project/Cemu/releases/download/v2.0/cemu-2.0-linux-x86_64.AppImage -O cemu || wget https://github.com/cemu-project/Cemu/releases/download/v2.6/cemu-2.0-linux-x86_64.AppImage -O cemu || true
+          # Download Cemu versi stabil langsung dari rilis resmi Cemu
+          wget https://github.com/cemu-project/Cemu/releases/download/v2.2/Cemu-2.2-linux-x86_64.AppImage -O cemu
+          chmod +x cemu
+          ./cemu --appimage-extract
           
-          if [ -f "cemu" ]; then
-            chmod +x cemu
-            ./cemu --appimage-extract
-            # Kompres folder hasil download
-            for dir in ./downloads/game/*/; do
-              if [ -d "$dir" ]; then
-                dirname=$(basename "$dir")
-                ./squashfs-root/AppRun --compress-title "$dir" -o "./output_wua/${dirname}.wua"
-              fi
-            done
-          else
-            echo "Melewati kompresi otomatis, bersiap upload file mentah..."
-            cp -r ./downloads/game ./output_wua/
-          fi
+          # Ubah setiap folder game hasil download menjadi file tunggal .wua
+          for dir in ./downloads/*/; do
+            if [ -d "$dir" ]; then
+              dirname=$(basename "$dir")
+              echo "Mengompres $dirname menjadi format .wua..."
+              ./squashfs-root/AppRun --compress-title "$dir" -o "./output_wua/${dirname}.wua"
+              # Hapus folder mentah setelah jadi WUA agar tidak boros disk
+              rm -rf "$dir"
+            fi
+          done
 
       - name: 6. Upload .WUA ke Rclone Destinasi
         run: |
           rclone copy ./output_wua "${{ inputs.rclone_dest }}" --progress --transfers 4
 
       - name: 7. Bersihkan Sisa File
-        run: rm -rf ./output_wua downloads squashfs-root WiiUDownloader cemu
+        run: rm -rf ./output_wua downloads squashfs-root cemu wiiupc
