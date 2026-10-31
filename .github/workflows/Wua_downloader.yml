@@ -30,12 +30,12 @@ jobs:
           sudo rm -rf /usr/local/share/boost
           df -h
 
-      - name: 2. Install Dependencies (WiiUDownloader CLI)
+      - name: 2. Install Dependencies (WiiUDownloader & Virtual Display)
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget unzip p7zip-full
+          sudo apt-get install -y wget unzip p7zip-full xvfb
           
-          # Download WiiUDownloader CLI
+          # Download WiiUDownloader
           wget https://github.com/Xpl0itU/WiiUDownloader/releases/latest/download/WiiUDownloader-Linux-x86_64.AppImage -O wiiupc
           chmod +x wiiupc
 
@@ -52,15 +52,15 @@ jobs:
             EXTRA_FLAGS="--dlc --update"
           fi
           
-          # Ekstrak AppImage dan Jalankan CLI Download
+          # Ekstrak AppImage dan Jalankan via Virtual Display (xvfb-run)
           ./wiiupc --appimage-extract
-          ./squashfs-root/AppRun -t "${{ inputs.title_id }}" -o ./downloads $EXTRA_FLAGS --decrypt
+          xvfb-run ./squashfs-root/AppRun -t "${{ inputs.title_id }}" -o ./downloads $EXTRA_FLAGS --decrypt
 
       - name: 5. Kompresi Folder Mentah ke WUA
         run: |
           mkdir -p ./output_wua
           
-          # Download tool kompresi wua / Cemu CLI helper
+          # Download tool Cemu CLI untuk kompresi
           wget https://github.com/cemu-project/Cemu/releases/latest/download/cemu-2.0-linux-x86_64.AppImage -O cemu
           chmod +x cemu
           ./cemu --appimage-extract
@@ -71,7 +71,7 @@ jobs:
               dirname=$(basename "$dir")
               echo "Mengompres $dirname ke WUA..."
               ./squashfs-root/AppRun --compress-title "$dir" -o "./output_wua/${dirname}.wua"
-              # Hapus folder mentah setelah selesai dikompres agar memori hemat
+              # Hapus folder mentah setelah selesai dikompres agar hemat memori
               rm -rf "$dir"
             fi
           done
