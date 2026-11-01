@@ -1,63 +1,64 @@
-name: Wii U CLI Downloader & Rclone
+name: Wii U Download, Extract and Upload to GDrive
 
 on:
   workflow_dispatch:
     inputs:
-      title_id:
-        description: 'Title ID Wii U (Contoh: 000500001016E100)'
+      download_url:
+        description: 'Direct Download URL (e.g., Internet Archive .7z link)'
         required: true
         type: string
-      rclone_remote:
-        description: 'Nama Remote Rclone'
+      gdrive_folder:
+        description: 'Target Folder in Google Drive'
         required: true
-        default: 'gdrive'
-      rclone_destination:
-        description: 'Folder tujuan di remote'
-        required: true
-        default: '/WiiU/Roms'
+        default: 'WiiU_Games'
+        type: string
 
 jobs:
-  download-and-transfer:
+  process-game:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+    - name: Checkout Repository
+      uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
+    - name: Setup Rclone
+      uses: AnimMouse/setup-rclone-action@v1
 
-      # Setup Rclone menggunakan Action dari AnimMouse
-      - name: Setup Rclone
-        uses: AnimMouse/setup-rclone@v1
-        with:
-          rclone_config: ${{ secrets.RCLONE_CONF }}
+    - name: Configure Rclone
+      run: |
+        mkdir -p ~/.config/rclone
+        echo "${{ secrets.RCLONE_CONF }}" > ~/.config/rclone/rclone.conf
 
-      - name: Download & Run NUS Downloader / Python CLI equivalent
-        run: |
-          # Menggunakan alat CLI alternatif yang mendukung Title ID langsung via terminal
-          # Contoh menggunakan nusspli-python atau downloader NUS berbasis CLI
-          pip install requests pycryptodome
-          
-          # Clone tool CLI pihak ketiga yang kompatibel dengan NUS server Nintendo
-          git clone https://github.com/Xpl0itU/WiiUDownloader.git
-          cd WiiUDownloader
-          
-          # Jika Anda ingin melihat struktur file aslinya
-          python3 -m pip install --upgrade pip
-          
-          # Jalankan perintah download (sesuaikan parameter dengan fungsi skrip CLI)
-          python3 WiiUDownloader.py --title-id "${{ inputs.title_id }}" --out ./output || python3 main.py --title-id "${{ inputs.title_id }}"
-        env:
-          TITLE_ID: "${{ inputs.title_id }}"
+    - name: Free Up Maximum Disk Space
+      run: |
+        echo "Clearing pre-installed tools and Android/Java SDKs to maximize free disk space..."
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /opt/ghc
+        sudo rm -rf /usr/local/share/boost
+        sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+        echo "=== Current Free Disk Space ==="
+        df -h /
 
-      - name: Transfer to Remote via Rclone
-        run: |
-          rclone copy ./WiiUDownloader/output "${{ inputs.rclone_remote }}:${{ inputs.rclone_destination }}" --progress --transfers 4
+    - name: Download Archive (With Cookie Auth)
+      run: |
+        echo "Downloading file from Internet Archive..."
+        wget --header="Cookie: ${{ secrets.IA_COOKIE }}" -O game.7z "${{ github.event.inputs.download_url }}"
+        echo "=== Disk Space After Download ==="
+        df -h /
 
-      - name: Clean up
-        if: always()
-        run: |
-          rm -rf WiiUDownloader/output
+    - name: Extract Archive & Clean Up Immediately
+      run: |
+        echo "Extracting 7z file..."
+        7z x game.7z -oextracted_game/
+        
+        echo "Removing 7z archive file to instantly reclaim storage..."
+        rm game.7z
+        
+        echo "=== Disk Space After Extraction & Cleanup ==="
+        df -h /
+
+    - name: Upload Extracted Folder to Google Drive via Rclone
+      run: |
+        echo "Uploading extracted folder to Google Drive..."
+        rclone copy extracted_game/ gdrive:"${{ github.event.inputs.gdrive_folder }}" --progress --transfers=4
