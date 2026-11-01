@@ -7,6 +7,11 @@ on:
         description: 'Direct Download URL (e.g., Internet Archive .7z link)'
         required: true
         type: string
+      rclone_remote:
+        description: 'Rclone Remote Name (e.g., mydrive, gdrive, drive)'
+        required: true
+        default: 'gdrive'
+        type: string
       gdrive_folder:
         description: 'Target Folder in Google Drive'
         required: true
@@ -60,5 +65,5 @@ jobs:
 
     - name: Upload Extracted Folder to Google Drive via Rclone
       run: |
-        echo "Uploading extracted folder to Google Drive..."
-        rclone copy extracted_game/ gdrive:"${{ github.event.inputs.gdrive_folder }}" --progress --transfers=4
+        echo "Uploading extracted folder to Google Drive using remote: ${{ github.event.inputs.rclone_remote }}"
+        rclone copy extracted_game/ "${{ github.event.inputs.rclone_remote }}:${{ github.event.inputs.gdrive_folder }}" --progress --transfers=4
