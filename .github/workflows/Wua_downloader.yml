@@ -31,59 +31,51 @@ jobs:
           sudo rm -rf /usr/local/share/boost
           df -h
 
-      - name: 2. Install Dependencies & Virtual Display
+      - name: 2. Install Dependencies & Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget unzip p7zip-full xvfb
+          sudo apt-get install -y wget unzip p7zip-full
 
       - name: 3. Setup Rclone
         uses: AnimMouse/setup-rclone@v1
         with:
           rclone_config: ${{ secrets.RCLONE_CONF }}
 
-      - name: 4. Download Game Wii U via Wii U Downloader
+      - name: 4. Download Game Wii U via NUSGet CLI
         run: |
-          # Bersihkan sisa folder lama jika ada
-          rm -rf downloads wiiu_extracted squashfs-root
+          rm -rf downloads nusget_extracted
           mkdir -p ./downloads
           
-          EXTRA_FLAGS=""
-          if [ "${{ inputs.download_dlc_updates }}" = "true" ]; then
-            EXTRA_FLAGS="--dlc --update"
-          fi
+          # Download & Ekstrak NUSGet Linux v1.5.3 resmi dari NinjaCheetah
+          wget "https://github.com/NinjaCheetah/NUSGet/releases/download/v1.5.3/NUSGet-Linux-x86_64-bin.zip" -O nusget.zip
+          unzip nusget.zip -d ./nusget_extracted
           
-          # Download Wii U Downloader
-          wget https://github.com/Xpl0itU/WiiUDownloader/releases/latest/download/WiiUDownloader-Linux-x86_64.AppImage -O wiiupc
-          chmod +x wiiupc
+          # Cari lokasi file biner eksekusi NUSGet
+          NUSGET_BIN=$(find ./nusget_extracted -type f -name "NUSGet" | head -n 1)
+          chmod +x "$NUSGET_BIN"
           
-          # Ekstrak Wii U Downloader ke folder khusus
-          ./wiiupc --appimage-extract
-          mv squashfs-root wiiu_extracted
-          
-          # Jalankan Wii U Downloader CLI menggunakan flag -t yang benar
-          xvfb-run ./wiiu_extracted/AppRun -t "${{ inputs.title_id }}" -o ./downloads $EXTRA_FLAGS --decrypt
+          # Unduh dan dekripsi game langsung dari NUS
+          "$NUSGET_BIN" --title "${{ inputs.title_id }}" --download --decrypt --output ./downloads
 
-      - name: 5. Download Cemu Enhanced & Kompresi Folder ke Format .WUA
+      - name: 5. Download Cemu Enhanced & Kompresi ke .WUA
         run: |
-          # Bersihkan sisa folder ekstrak Cemu lama jika ada
           rm -rf cemu_extracted squashfs-root cemu_enhanced
           mkdir -p ./output_wua
           
-          # Download kembali Cemu Enhanced AppImage menggunakan link permanen pilihanmu
+          # Download Cemu Enhanced AppImage pilihanmu
           wget "https://github.com/pkgforge-dev/Cemu-AppImage-Enhanced/releases/download/2.6-4%402026-02-01_1769935971/Cemu-2.6-4-anylinux-x86_64.AppImage" -O cemu_enhanced
           chmod +x cemu_enhanced
           
-          # Ekstrak Cemu Enhanced ke folder khusus
+          # Ekstrak AppImage Cemu ke folder terpisah agar tidak bentrok
           ./cemu_enhanced --appimage-extract
           mv squashfs-root cemu_extracted
           
-          # Proses kompresi folder hasil download menjadi file tunggal .wua
+          # Proses kompresi setiap folder hasil unduhan menjadi file .wua
           for dir in ./downloads/*/; do
             if [ -d "$dir" ]; then
               dirname=$(basename "$dir")
               echo "Mengompres folder $dirname menjadi file .wua..."
               ./cemu_extracted/AppRun --compress-title "$dir" -o "./output_wua/${dirname}.wua"
-              # Hapus folder mentah setelah sukses jadi .wua agar hemat disk
               rm -rf "$dir"
             fi
           done
@@ -93,4 +85,4 @@ jobs:
           rclone copy ./output_wua "${{ inputs.rclone_dest }}" --progress --transfers 4
 
       - name: 7. Bersihkan Sisa File Runner
-        run: rm -rf ./output_wua downloads wiiu_extracted cemu_extracted cemu_enhanced wiiupc squashfs-root
+        run: rm -rf ./output_wua downloads nusget_extracted nusget.zip cemu_extracted cemu_enhanced squashfs-root
