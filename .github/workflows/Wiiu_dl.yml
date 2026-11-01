@@ -1,0 +1,59 @@
+name: Wii U Downloader & Rclone Transfer
+
+on:
+  workflow_dispatch:
+    inputs:
+      title_id:
+        description: 'Title ID Wii U (Contoh: 0005000010144F00)'
+        required: true
+        type: string
+      rclone_remote:
+        description: 'Nama Remote Rclone (sesuai rclone.conf)'
+        required: true
+        default: 'gdrive'
+        type: string
+      rclone_destination:
+        description: 'Folder tujuan di remote (Contoh: /WiiU/Roms)'
+        required: true
+        default: '/WiiU/Roms'
+        type: string
+
+jobs:
+  download-and-transfer:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      # Setup Rclone menggunakan Action dari AnimMouse
+      - name: Setup Rclone
+        uses: AnimMouse/setup-rclone@v1
+        with:
+          rclone_config: ${{ secrets.RCLONE_CONF }}
+
+      - name: Install WiiUDownloader
+        run: |
+          git clone https://github.com/Xpl0itU/WiiUDownloader.git
+          cd WiiUDownloader
+          pip install -r requirements.txt || pip install requests pycryptodome
+
+      - name: Run Wii U Downloader
+        run: |
+          cd WiiUDownloader
+          python main.py --title-id "${{ inputs.title_id }}" --output ./output
+
+      - name: Transfer to Remote via Rclone
+        run: |
+          echo "Memulai transfer rclone ke remote: ${{ inputs.rclone_remote }}"
+          rclone copy ./WiiUDownloader/output "${{ inputs.rclone_remote }}:${{ inputs.rclone_destination }}" --progress --transfers 4
+
+      - name: Clean up local files
+        if: always()
+        run: |
+          rm -rf WiiUDownloader/output
