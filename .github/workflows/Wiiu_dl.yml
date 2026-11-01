@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       download_url:
-        description: 'Direct Download URL (e.g., Internet Archive .7z link)'
+        description: 'Direct Download URL (Internet Archive .7z link)'
         required: true
         type: string
       rclone_remote:
-        description: 'Rclone Remote Name (e.g., mydrive, gdrive, drive)'
+        description: 'Rclone Remote Name (e.g., mydrive, gdrive)'
         required: true
         default: 'gdrive'
         type: string
@@ -36,7 +36,7 @@ jobs:
 
     - name: Free Up Maximum Disk Space
       run: |
-        echo "Clearing pre-installed tools and Android/Java SDKs to maximize free disk space..."
+        echo "Clearing pre-installed tools and SDKs to maximize free space..."
         sudo rm -rf /usr/share/dotnet
         sudo rm -rf /usr/local/lib/android
         sudo rm -rf /opt/ghc
@@ -45,10 +45,17 @@ jobs:
         echo "=== Current Free Disk Space ==="
         df -h /
 
-    - name: Download Archive (With Cookie Auth)
+    - name: Download Archive with wget & Netscape Cookies
       run: |
-        echo "Downloading file from Internet Archive..."
-        wget --header="Cookie: ${{ secrets.IA_COOKIE }}" -O game.7z "${{ github.event.inputs.download_url }}"
+        echo "Creating temporary Internet Archive cookies file..."
+        echo "${{ secrets.IA_COOKIE }}" > ia_cookies.txt
+        
+        echo "Downloading file..."
+        wget --load-cookies ia_cookies.txt -O game.7z "${{ github.event.inputs.download_url }}"
+        
+        echo "Cleaning up temporary cookie file..."
+        rm ia_cookies.txt
+        
         echo "=== Disk Space After Download ==="
         df -h /
 
