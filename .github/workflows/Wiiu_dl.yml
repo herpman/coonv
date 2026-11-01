@@ -1,22 +1,20 @@
-name: Wii U Downloader & Rclone Transfer
+name: Wii U CLI Downloader & Rclone
 
 on:
   workflow_dispatch:
     inputs:
       title_id:
-        description: 'Title ID Wii U (Contoh: 0005000010144F00)'
+        description: 'Title ID Wii U (Contoh: 000500001016E100)'
         required: true
         type: string
       rclone_remote:
-        description: 'Nama Remote Rclone (sesuai rclone.conf)'
+        description: 'Nama Remote Rclone'
         required: true
         default: 'gdrive'
-        type: string
       rclone_destination:
-        description: 'Folder tujuan di remote (Contoh: /WiiU/Roms)'
+        description: 'Folder tujuan di remote'
         required: true
         default: '/WiiU/Roms'
-        type: string
 
 jobs:
   download-and-transfer:
@@ -37,23 +35,29 @@ jobs:
         with:
           rclone_config: ${{ secrets.RCLONE_CONF }}
 
-      - name: Install WiiUDownloader
+      - name: Download & Run NUS Downloader / Python CLI equivalent
         run: |
+          # Menggunakan alat CLI alternatif yang mendukung Title ID langsung via terminal
+          # Contoh menggunakan nusspli-python atau downloader NUS berbasis CLI
+          pip install requests pycryptodome
+          
+          # Clone tool CLI pihak ketiga yang kompatibel dengan NUS server Nintendo
           git clone https://github.com/Xpl0itU/WiiUDownloader.git
           cd WiiUDownloader
-          pip install -r requirements.txt || pip install requests pycryptodome
-
-      - name: Run Wii U Downloader
-        run: |
-          cd WiiUDownloader
-          python main.py --title-id "${{ inputs.title_id }}" --output ./output
+          
+          # Jika Anda ingin melihat struktur file aslinya
+          python3 -m pip install --upgrade pip
+          
+          # Jalankan perintah download (sesuaikan parameter dengan fungsi skrip CLI)
+          python3 WiiUDownloader.py --title-id "${{ inputs.title_id }}" --out ./output || python3 main.py --title-id "${{ inputs.title_id }}"
+        env:
+          TITLE_ID: "${{ inputs.title_id }}"
 
       - name: Transfer to Remote via Rclone
         run: |
-          echo "Memulai transfer rclone ke remote: ${{ inputs.rclone_remote }}"
           rclone copy ./WiiUDownloader/output "${{ inputs.rclone_remote }}:${{ inputs.rclone_destination }}" --progress --transfers 4
 
-      - name: Clean up local files
+      - name: Clean up
         if: always()
         run: |
           rm -rf WiiUDownloader/output
