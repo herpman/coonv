@@ -34,7 +34,7 @@ jobs:
       - name: 2. Install Dependencies & Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget unzip p7zip-full libegl1 libopengl0 libgl1-mesa-glx
+          sudo apt-get install -y wget unzip p7zip-full libegl1 libopengl0
 
       - name: 3. Setup Rclone
         uses: AnimMouse/setup-rclone@v1
