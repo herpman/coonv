@@ -49,31 +49,35 @@ jobs:
             EXTRA_FLAGS="--dlc --update"
           fi
           
-          # Download Wii U Downloader AppImage
+          # Download Wii U Downloader
           wget https://github.com/Xpl0itU/WiiUDownloader/releases/latest/download/WiiUDownloader-Linux-x86_64.AppImage -O wiiupc
           chmod +x wiiupc
           
+          # Ekstrak Wii U Downloader ke folder khusus (wiiu_extracted)
           ./wiiupc --appimage-extract
-          xvfb-run ./squashfs-root/AppRun -t "${{ inputs.title_id }}" -o ./downloads $EXTRA_FLAGS --decrypt
+          mv squashfs-root wiiu_extracted
+          
+          # Jalankan Wii U Downloader CLI
+          xvfb-run ./wiiu_extracted/AppRun --title-id "${{ inputs.title_id }}" -o ./downloads $EXTRA_FLAGS --decrypt
 
-      - name: 5. Kompresi Folder ke Format .WUA dengan Cemu Enhanced AppImage
+      - name: 5. Download Cemu Enhanced & Kompresi Folder ke Format .WUA
         run: |
           mkdir -p ./output_wua
           
-          # Download Cemu Enhanced AppImage versi x86_64 dari link pilihanmu
+          # Download kembali Cemu Enhanced AppImage menggunakan link permanen pilihanmu
           wget "https://github.com/pkgforge-dev/Cemu-AppImage-Enhanced/releases/download/2.6-4%402026-02-01_1769935971/Cemu-2.6-4-anylinux-x86_64.AppImage" -O cemu_enhanced
           chmod +x cemu_enhanced
           
-          # Ekstrak AppImage Cemu
+          # Ekstrak Cemu Enhanced ke folder khusus (cemu_extracted)
           ./cemu_enhanced --appimage-extract
+          mv squashfs-root cemu_extracted
           
           # Proses kompresi folder hasil download menjadi file tunggal .wua
           for dir in ./downloads/*/; do
             if [ -d "$dir" ]; then
               dirname=$(basename "$dir")
               echo "Mengompres folder $dirname menjadi file .wua..."
-              # Menjalankan perintah kompresi title Cemu
-              ./squashfs-root/AppRun --compress-title "$dir" -o "./output_wua/${dirname}.wua"
+              ./cemu_extracted/AppRun --compress-title "$dir" -o "./output_wua/${dirname}.wua"
               # Hapus folder mentah setelah sukses jadi .wua agar hemat disk
               rm -rf "$dir"
             fi
@@ -84,4 +88,4 @@ jobs:
           rclone copy ./output_wua "${{ inputs.rclone_dest }}" --progress --transfers 4
 
       - name: 7. Bersihkan Sisa File Runner
-        run: rm -rf ./output_wua downloads squashfs-root cemu_enhanced wiiupc
+        run: rm -rf ./output_wua downloads wiiu_extracted cemu_extracted cemu_enhanced wiiupc
