@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       title_id:
-        description: 'Masukkan Title ID Game (Contoh Bayonetta 1: 0005000010173600)'
+        description: 'Masukkan Title ID Game (Contoh Shovel Knight: 000500001016E200)'
         required: true
-        default: '0005000010173600'
+        default: '000500001016E200'
         type: string
       rclone_dest:
         description: 'Destinasi Rclone (Contoh: gdrive:/GameWiiU atau mega:/Backup)'
@@ -34,7 +34,7 @@ jobs:
       - name: 2. Install Dependencies & Virtual Display
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget unzip p7zip-full xvfb tar
+          sudo apt-get install -y wget unzip p7zip-full xvfb
 
       - name: 3. Setup Rclone
         uses: AnimMouse/setup-rclone@v1
@@ -49,48 +49,39 @@ jobs:
             EXTRA_FLAGS="--dlc --update"
           fi
           
-          # Download Wii U Downloader AppImage (ini downloader-nya, bukan Cemu)
+          # Download Wii U Downloader AppImage
           wget https://github.com/Xpl0itU/WiiUDownloader/releases/latest/download/WiiUDownloader-Linux-x86_64.AppImage -O wiiupc
           chmod +x wiiupc
           
           ./wiiupc --appimage-extract
           xvfb-run ./squashfs-root/AppRun -t "${{ inputs.title_id }}" -o ./downloads $EXTRA_FLAGS --decrypt
 
-      - name: 5. Download Cemu Tarball & Kompres ke .WUA
+      - name: 5. Kompresi Folder ke Format .WUA dengan Cemu Enhanced AppImage
         run: |
           mkdir -p ./output_wua
           
-          # Download Cemu versi Linux dalam bentuk tar.xz resmi (jauh lebih stabil linknya)
-          # Mengambil dari rilis stabil Cemu
-          wget https://github.com/cemu-project/Cemu/releases/download/v2.2/Cemu-2.2-linux-x86_64.tar.xz -O cemu.tar.xz || wget https://github.com/cemu-project/Cemu/releases/download/v2.0/Cemu-2.0-linux-x86_64.tar.xz -O cemu.tar.xz || true
+          # Download Cemu Enhanced AppImage versi x86_64 dari link pilihanmu
+          wget "https://github.com/pkgforge-dev/Cemu-AppImage-Enhanced/releases/download/2.6-4%402026-02-01_1769935971/Cemu-2.6-4-anylinux-x86_64.AppImage" -O cemu_enhanced
+          chmod +x cemu_enhanced
           
-          if [ -f "cemu.tar.xz" ]; then
-            tar -xf cemu.tar.xz
-            # Temukan binary Cemu hasil ekstrak (biasanya di dalam folder Cemu-...)
-            CEMU_BIN=$(find . -maxdepth 2 -type f -name "Cemu" | head -n 1)
-            
-            if [ -n "$CEMU_BIN" ]; then
-              chmod +x "$CEMU_BIN"
-              for dir in ./downloads/*/; do
-                if [ -d "$dir" ]; then
-                  dirname=$(basename "$dir")
-                  echo "Mengompres folder $dirname menjadi .wua..."
-                  "$CEMU_BIN" --compress-title "$dir" -o "./output_wua/${dirname}.wua"
-                  rm -rf "$dir"
-                fi
-              done
-            else
-              echo "Error: Biner Cemu tidak ditemukan setelah ekstrak tarball!"
-              exit 1
+          # Ekstrak AppImage Cemu
+          ./cemu_enhanced --appimage-extract
+          
+          # Proses kompresi folder hasil download menjadi file tunggal .wua
+          for dir in ./downloads/*/; do
+            if [ -d "$dir" ]; then
+              dirname=$(basename "$dir")
+              echo "Mengompres folder $dirname menjadi file .wua..."
+              # Menjalankan perintah kompresi title Cemu
+              ./squashfs-root/AppRun --compress-title "$dir" -o "./output_wua/${dirname}.wua"
+              # Hapus folder mentah setelah sukses jadi .wua agar hemat disk
+              rm -rf "$dir"
             fi
-          else
-            echo "Error: Gagal mendownload tarball Cemu!"
-            exit 1
-          fi
+          done
 
       - name: 6. Upload .WUA ke Rclone Destinasi
         run: |
           rclone copy ./output_wua "${{ inputs.rclone_dest }}" --progress --transfers 4
 
       - name: 7. Bersihkan Sisa File Runner
-        run: rm -rf ./output_wua downloads squashfs-root cemu.tar.xz Cemu-* wiiupc
+        run: rm -rf ./output_wua downloads squashfs-root cemu_enhanced wiiupc
