@@ -1,0 +1,71 @@
+name: Rclone Decrypt & Upload Wii U to GDrive
+
+on:
+  workflow_dispatch:
+    inputs:
+      rclone_remote:
+        description: 'Nama Remote Rclone (contoh: gdrive)'
+        required: true
+        default: 'gdrive'
+      gdrive_input_folder:
+        description: 'Path folder MENTAH di GDrive (contoh: WiiU/ShovelKnight_Raw)'
+        required: true
+      gdrive_output_folder:
+        description: 'Path folder HASIL DEKRIPSI di GDrive (contoh: WiiU/ShovelKnight_Ready)'
+        required: true
+
+jobs:
+  process-game:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v5
+
+      - name: Setup Rclone
+        uses: AnimMouse/setup-rclone@v1
+        with:
+          rclone_config: ${{ secrets.RCLONE_CONF }}
+
+      - name: Install CDecrypt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cdecrypt
+
+      - name: Download Folder Mentah dari Google Drive
+        run: |
+          REMOTE="${{ github.event.inputs.rclone_remote }}"
+          FOLDER="${{ github.event.inputs.gdrive_input_folder }}"
+          
+          echo "Mengunduh dari remote: $REMOTE"
+          echo "Folder input: $FOLDER"
+          
+          mkdir -p game_raw
+          rclone copy "$REMOTE:$FOLDER" ./game_raw --progress
+
+      - name: Jalankan Proses Dekripsi CDecrypt
+        run: |
+          cd game_raw
+          # Mencari file title.tmd secara otomatis di dalam folder hasil download
+          TMD_FILE=$(find . -name "title.tmd" | head -n 1)
+          if [ -z "$TMD_FILE" ]; then
+            echo "Error: file title.tmd tidak ditemukan!"
+            exit 1
+          fi
+          
+          DIR_NAME=$(dirname "$TMD_FILE")
+          cd "$DIR_NAME"
+          
+          # Eksekusi dekripsi
+          cdecrypt title.tmd
+          
+          # Pindahkan hasil folder code, content, meta keluar ke folder output
+          mkdir -p ../output
+          mv code content meta ../output/
+
+      - name: Upload Hasil Dekripsi kembali ke Google Drive
+        run: |
+          REMOTE="${{ github.event.inputs.rclone_remote }}"
+          OUT_FOLDER="${{ github.event.inputs.gdrive_output_folder }}"
+          
+          echo "Mengunggah hasil dekripsi ke: $REMOTE:$OUT_FOLDER"
+          rclone copy ./game_raw/output "$REMOTE:$OUT_FOLDER" --progress
