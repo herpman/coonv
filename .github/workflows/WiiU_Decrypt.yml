@@ -19,17 +19,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
 
       - name: Setup Rclone
         uses: AnimMouse/setup-rclone@v1
         with:
           rclone_config: ${{ secrets.RCLONE_CONF }}
 
-      - name: Install CDecrypt
+      - name: Install CDecrypt Binaries
         run: |
           sudo apt-get update
-          sudo apt-get install -y cdecrypt
+          sudo apt-get install -y wget unzip
+          
+          # Unduh CDecrypt versi Linux terbaru
+          wget https://github.com/VitaSmith/cdecrypt/releases/download/v4.8/cdecrypt.zip
+          unzip cdecrypt.zip
+          chmod +x cdecrypt
+          sudo mv cdecrypt /usr/local/bin/
 
       - name: Download Folder Mentah dari Google Drive
         run: |
@@ -45,6 +51,7 @@ jobs:
       - name: Jalankan Proses Dekripsi CDecrypt
         run: |
           cd game_raw
+          
           # Mencari file title.tmd secara otomatis di dalam folder hasil download
           TMD_FILE=$(find . -name "title.tmd" | head -n 1)
           if [ -z "$TMD_FILE" ]; then
