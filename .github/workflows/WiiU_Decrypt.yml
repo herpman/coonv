@@ -54,7 +54,7 @@ jobs:
         run: |
           cd game_raw
           
-          # Mencari file title.tmd secara otomatis di dalam folder hasil download
+          # Cari file title.tmd di seluruh subfolder hasil download
           TMD_FILE=$(find . -name "title.tmd" | head -n 1)
           if [ -z "$TMD_FILE" ]; then
             echo "Error: file title.tmd tidak ditemukan!"
@@ -62,14 +62,21 @@ jobs:
           fi
           
           DIR_NAME=$(dirname "$TMD_FILE")
+          echo "File tmd ditemukan di direktori: $DIR_NAME"
           cd "$DIR_NAME"
           
           # Eksekusi dekripsi
           cdecrypt title.tmd
           
-          # Pindahkan hasil folder code, content, meta keluar ke folder output
-          mkdir -p ../output
-          mv code content meta ../output/
+          # Buat folder output di root (game_raw/output) dan pindahkan hasil dekripsi ke sana
+          mkdir -p ../../output
+          
+          # Memindahkan folder code, content, meta secara aman ke folder output utama
+          [ -d "code" ] && mv code ../../output/
+          [ -d "content" ] && mv content ../../output/
+          [ -d "meta" ] && mv meta ../../output/
+          
+          echo "Struktur folder output berhasil disiapkan."
 
       - name: Upload Hasil Dekripsi kembali ke Google Drive
         run: |
