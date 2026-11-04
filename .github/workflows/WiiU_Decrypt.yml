@@ -3,15 +3,22 @@ name: Rclone Decrypt & Upload Wii U to GDrive
 on:
   workflow_dispatch:
     inputs:
-      rclone_remote:
-        description: 'Nama Remote Rclone (contoh: gdrive)'
+      # Remote & Folder Input (Asal)
+      rclone_input_remote:
+        description: 'Nama Remote Rclone INPUT (contoh: gdrive)'
         required: true
         default: 'gdrive'
       gdrive_input_folder:
-        description: 'Path folder MENTAH di GDrive (contoh: WiiU/ShovelKnight_Raw)'
+        description: 'Path folder MENTAH di GDrive'
         required: true
+      
+      # Remote & Folder Output (Tujuan)
+      rclone_output_remote:
+        description: 'Nama Remote Rclone OUTPUT (boleh beda/sama)'
+        required: true
+        default: 'gdrive'
       gdrive_output_folder:
-        description: 'Path folder HASIL DEKRIPSI di GDrive (contoh: WiiU/ShovelKnight_Ready)'
+        description: 'Path folder HASIL DEKRIPSI di GDrive'
         required: true
 
 jobs:
@@ -31,7 +38,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential libssl-dev git
           
-          # Clone repository resmi CDecrypt dan compile untuk Linux
           git clone https://github.com/VitaSmith/cdecrypt.git
           cd cdecrypt
           make
@@ -39,49 +45,47 @@ jobs:
           chmod +x cdecrypt
           sudo mv cdecrypt /usr/local/bin/
 
+      - name: Buat Direktori Kerja
+        run: |
+          mkdir -p /tmp/game_raw
+          mkdir -p /tmp/game_output
+
       - name: Download Folder Mentah dari Google Drive
         run: |
-          REMOTE="${{ github.event.inputs.rclone_remote }}"
+          REMOTE="${{ github.event.inputs.rclone_input_remote }}"
           FOLDER="${{ github.event.inputs.gdrive_input_folder }}"
           
-          echo "Mengunduh dari remote: $REMOTE"
-          echo "Folder input: $FOLDER"
-          
-          mkdir -p game_raw
-          rclone copy "$REMOTE:$FOLDER" ./game_raw --progress
+          echo "Mengunduh dari remote: $REMOTE:$FOLDER"
+          rclone copy "$REMOTE:$FOLDER" /tmp/game_raw --progress
 
       - name: Jalankan Proses Dekripsi CDecrypt
         run: |
-          cd game_raw
+          # Cari file title.tmd di dalam direktori /tmp/game_raw
+          TMD_FILE=$(find /tmp/game_raw -name "title.tmd" | head -n 1)
           
-          # Cari file title.tmd di seluruh subfolder hasil download
-          TMD_FILE=$(find . -name "title.tmd" | head -n 1)
           if [ -z "$TMD_FILE" ]; then
             echo "Error: file title.tmd tidak ditemukan!"
             exit 1
           fi
           
           DIR_NAME=$(dirname "$TMD_FILE")
-          echo "File tmd ditemukan di direktori: $DIR_NAME"
-          cd "$DIR_NAME"
+          echo "File tmd ditemukan di: $DIR_NAME"
           
-          # Eksekusi dekripsi
+          # Pindah ke folder tempat tmd berada, lalu jalankan cdecrypt
+          cd "$DIR_NAME"
           cdecrypt title.tmd
           
-          # Buat folder output di root (game_raw/output) dan pindahkan hasil dekripsi ke sana
-          mkdir -p ../../output
+          # Pindahkan hasil (code, content, meta) ke folder /tmp/game_output secara pasti
+          [ -d "code" ] && mv code /tmp/game_output/
+          [ -d "content" ] && mv content /tmp/game_output/
+          [ -d "meta" ] && mv meta /tmp/game_output/
           
-          # Memindahkan folder code, content, meta secara aman ke folder output utama
-          [ -d "code" ] && mv code ../../output/
-          [ -d "content" ] && mv content ../../output/
-          [ -d "meta" ] && mv meta ../../output/
-          
-          echo "Struktur folder output berhasil disiapkan."
+          echo "Dekripsi selesai dan dipindahkan ke /tmp/game_output"
 
-      - name: Upload Hasil Dekripsi kembali ke Google Drive
+      - name: Upload Hasil Dekripsi ke Remote Tujuan
         run: |
-          REMOTE="${{ github.event.inputs.rclone_remote }}"
+          OUT_REMOTE="${{ github.event.inputs.rclone_output_remote }}"
           OUT_FOLDER="${{ github.event.inputs.gdrive_output_folder }}"
           
-          echo "Mengunggah hasil dekripsi ke: $REMOTE:$OUT_FOLDER"
-          rclone copy ./game_raw/output "$REMOTE:$OUT_FOLDER" --progress
+          echo "Mengunggah ke: $OUT_REMOTE:$OUT_FOLDER"
+          rclone copy /tmp/game_output "$OUT_REMOTE:$OUT_FOLDER" --progress
