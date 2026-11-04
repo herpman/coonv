@@ -29,11 +29,13 @@ jobs:
       - name: Install CDecrypt Binaries
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget unzip
+          sudo apt-get install -y build-essential libssl-dev git
           
-          # Unduh CDecrypt versi Linux terbaru
-          wget https://github.com/VitaSmith/cdecrypt/releases/download/v4.8/cdecrypt.zip
-          unzip cdecrypt.zip
+          # Clone repository resmi CDecrypt dan compile untuk Linux
+          git clone https://github.com/VitaSmith/cdecrypt.git
+          cd cdecrypt
+          make
+          
           chmod +x cdecrypt
           sudo mv cdecrypt /usr/local/bin/
 
