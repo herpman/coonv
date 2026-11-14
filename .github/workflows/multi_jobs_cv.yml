@@ -104,7 +104,7 @@ jobs:
           
           if [ "$EXPLICIT_TYPE" = "gdown" ] || [ "$EXPLICIT_TYPE" = "gdrive" ]; then
             echo "Menggunakan gdown berdasarkan tag eksplisit..."
-            gdown "$FIRST_URL"
+            gdown --fuzzy "$FIRST_URL"
           elif [[ "$FIRST_URL" == *"mediafire.com"* ]]; then
             echo "Mendeteksi link MediaFire pada file pertama..."
             DIRECT_MF=$(python3 ../get_mf.py "$FIRST_URL")
@@ -119,7 +119,7 @@ jobs:
             FILE_ID="${BASH_REMATCH[1]}"
             curl -L -O -J "https://pixeldrain.com/api/file/$FILE_ID"
           elif [[ "$FIRST_URL" =~ (drive|docs|usercontent)\.google\.com ]]; then
-            gdown "$FIRST_URL"
+            gdown --fuzzy "$FIRST_URL"
           else
             curl -L -O -J "$FIRST_URL" || true
           fi
