@@ -125,7 +125,7 @@ jobs:
             elif [ "$TOOL" = "aria2" ]; then
               aria2c --content-disposition=true --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)" --header="Referer: https://www.mediafire.com/" "$URL"
             elif [ "$TOOL" = "gdown" ]; then
-              gdown --fuzzy "$URL"
+              gdown "$URL"
             fi
 
           done < ../urls.txt
