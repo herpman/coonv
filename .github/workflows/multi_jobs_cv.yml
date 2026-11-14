@@ -96,28 +96,29 @@ jobs:
           mkdir -p raw_videos downloads_temp
           cd downloads_temp
           
-          # Baca baris pertama yt_urls.txt
-          FIRST_URL=$(grep -v '^#' ../yt_urls.txt | awk NF | head -n 1)
+          # Baca baris pertama yt_urls.txt dan parsing format "target | type"
+          FIRST_LINE=$(grep -v '^#' ../yt_urls.txt | awk NF | head -n 1)
+          FIRST_URL=$(echo "$FIRST_LINE" | awk -F'|' '{print $1}' | xargs)
+          EXPLICIT_TYPE=$(echo "$FIRST_LINE" | awk -F'|' '{if (NF>1) print $2}' | xargs | tr '[:upper:]' '[:lower:]')
           
-          if [[ "$FIRST_URL" == *"mediafire.com"* ]]; then
+          if [ "$EXPLICIT_TYPE" = "gdown" ] || [ "$EXPLICIT_TYPE" = "gdrive" ]; then
+            echo "Menggunakan gdown berdasarkan tag eksplisit..."
+            gdown --fuzzy "$FIRST_URL"
+          elif [[ "$FIRST_URL" == *"mediafire.com"* ]]; then
             echo "Mendeteksi link MediaFire pada file pertama..."
             DIRECT_MF=$(python3 ../get_mf.py "$FIRST_URL")
             if [ -n "$DIRECT_MF" ]; then
               FIRST_URL="$DIRECT_MF"
               echo "Direct Link MediaFire didapatkan: $FIRST_URL"
             fi
-          fi
-
-          # Download file pertama ke folder temporary (Otomatis mendeteksi Mega, Pixeldrain, Google Drive, MediaFire, dll)
-          if [[ "$FIRST_URL" =~ mega\.nz ]]; then
+            curl -L -O -J --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$FIRST_URL"
+          elif [[ "$FIRST_URL" =~ mega\.nz ]]; then
             megadl "$FIRST_URL" --path .
           elif [[ "$FIRST_URL" =~ pixeldrain\.com/u/([a-zA-Z0-9]+) ]]; then
             FILE_ID="${BASH_REMATCH[1]}"
             curl -L -O -J "https://pixeldrain.com/api/file/$FILE_ID"
-          elif [[ "$FIRST_URL" =~ drive\.google\.com ]] || [[ "$FIRST_URL" =~ docs\.google\.com ]]; then
+          elif [[ "$FIRST_URL" =~ (drive|docs|usercontent)\.google\.com ]]; then
             gdown --fuzzy "$FIRST_URL"
-          elif [[ "$FIRST_URL" == *"download"*".mediafire.com"* ]]; then
-            curl -L -O -J --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$FIRST_URL"
           else
             curl -L -O -J "$FIRST_URL" || true
           fi
@@ -200,14 +201,20 @@ jobs:
       - name: Process Media (Convert & Sync)
         run: |
           IS_ARCHIVE="${{ needs.prepare-matrix.outputs.is_archive }}"
-          ITEM="${{ matrix.item }}"
+          RAW_ITEM="${{ matrix.item }}"
+          
+          # Parsing item dari matrix ("target | type" atau "target" saja)
+          TARGET_URL=$(echo "$RAW_ITEM" | awk -F'|' '{print $1}' | xargs)
+          EXPLICIT_TYPE=$(echo "$RAW_ITEM" | awk -F'|' '{if (NF>1) print $2}' | xargs | tr '[:upper:]' '[:lower:]')
+          
+          echo "Downloading media from URL/ID: $TARGET_URL (Type: ${EXPLICIT_TYPE:-auto})"
           
           # Buat folder input, output, scripts, raw_videos, dan subtitles
           mkdir -p input output scripts raw_videos subtitles
           
           if [ "$IS_ARCHIVE" == "true" ]; then
             # Mode Arsip: Ambil file video dari artifact
-            FILENAME="$ITEM"
+            FILENAME="$TARGET_URL"
             mv "raw_files/$FILENAME" "input/$FILENAME"
             
             base_name="${FILENAME%.*}"
@@ -219,9 +226,6 @@ jobs:
             fi
           else
             # Mode Direct Link: Download langsung file videonya di runner masing-masing tanpa artifact
-            TARGET_URL="$ITEM"
-            echo "Downloading media from URL: $TARGET_URL"
-            
             sudo apt-get update
             sudo apt-get install -y megatools python3 python3-pip
             python -m pip install requests beautifulsoup4 curl-cffi gdown
@@ -270,12 +274,14 @@ jobs:
             fi
             rm -f get_mf.py
             
-            if [[ "$TARGET_URL" =~ mega\.nz ]]; then
+            if [ "$EXPLICIT_TYPE" = "gdown" ] || [ "$EXPLICIT_TYPE" = "gdrive" ]; then
+              gdown --fuzzy "$TARGET_URL"
+            elif [[ "$TARGET_URL" =~ mega\.nz ]]; then
               megadl "$TARGET_URL" --path .
             elif [[ "$TARGET_URL" =~ pixeldrain\.com/u/([a-zA-Z0-9]+) ]]; then
               FILE_ID="${BASH_REMATCH[1]}"
               curl -L -O -J "https://pixeldrain.com/api/file/$FILE_ID"
-            elif [[ "$TARGET_URL" =~ drive\.google\.com ]] || [[ "$TARGET_URL" =~ docs\.google\.com ]]; then
+            elif [[ "$TARGET_URL" =~ (drive|docs|usercontent)\.google\.com ]]; then
               gdown --fuzzy "$TARGET_URL"
             elif [[ "$TARGET_URL" == *"download"*".mediafire.com"* ]]; then
               curl -L -O -J --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$TARGET_URL"
