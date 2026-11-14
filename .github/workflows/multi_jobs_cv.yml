@@ -3,6 +3,14 @@ name: Smart Media Pipeline (Archive vs Direct Links)
 on:
   workflow_dispatch:
     inputs:
+      DOWNLOADER:
+        description: 'Pilih Tool Download (gdown / default)'
+        required: true
+        default: 'gdown'
+        type: choice
+        options:
+          - gdown
+          - default
       FPS:
         description: 'FPS (e.g., source, 24)'
         required: false
@@ -56,66 +64,22 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y jq p7zip-full unrar megatools python3 python3-pip
-          python -m pip install requests beautifulsoup4 curl-cffi
+          python -m pip install gdown requests beautifulsoup4
           
-          cat << 'EOF' > get_mf.py
-          import sys, re
-          from bs4 import BeautifulSoup
-          from curl_cffi import requests
-
-          url = sys.argv[1]
-          try:
-              # Menggunakan curl_cffi untuk bypass Cloudflare/bot protection MediaFire
-              res = requests.get(url, impersonate="chrome110", timeout=25)
-              soup = BeautifulSoup(res.text, 'html.parser')
-              
-              btn = soup.find('a', {'id': 'downloadButton'})
-              if btn and 'href' in btn.attrs:
-                  print(btn['href'])
-              else:
-                  alt_btn = soup.select_one('a.input.popsok') or soup.find('a', attrs={'aria-label': 'Download file'})
-                  if alt_btn and 'href' in alt_btn.attrs:
-                      print(alt_btn['href'])
-                  else:
-                      all_matches = re.findall(r'(https?://[a-zA-Z0-9\-\.]*mediafire\.com/[^\s"\'<>]+)', res.text)
-                      valid_link = ''
-                      for m in all_matches:
-                          if 'download' in m and 'file' not in m and 'profile' not in m:
-                              valid_link = m
-                              break
-                              
-                      if valid_link:
-                          print(valid_link)
-                      else:
-                          links = re.findall(r'https?://download\d+\.mediafire\.com/[^\s\"\']+', res.text)
-                          print(links[0] if links else '')
-          except Exception:
-              print('')
-          EOF
-
           mkdir -p raw_videos downloads_temp
           cd downloads_temp
           
           # Baca baris pertama yt_urls.txt
           FIRST_URL=$(grep -v '^#' ../yt_urls.txt | awk NF | head -n 1)
           
-          if [[ "$FIRST_URL" == *"mediafire.com"* ]]; then
-            echo "Mendeteksi link MediaFire pada file pertama..."
-            DIRECT_MF=$(python3 ../get_mf.py "$FIRST_URL")
-            if [ -n "$DIRECT_MF" ]; then
-              FIRST_URL="$DIRECT_MF"
-              echo "Direct Link MediaFire didapatkan: $FIRST_URL"
-            fi
-          fi
-
-          # Download file pertama ke folder temporary
-          if [[ "$FIRST_URL" =~ mega\.nz ]]; then
+          # Download file pertama ke folder temporary berdasarkan pilihan downloader
+          if [ "${{ github.event.inputs.DOWNLOADER }}" = "gdown" ]; then
+            gdown --fuzzy "$FIRST_URL"
+          elif [[ "$FIRST_URL" =~ mega\.nz ]]; then
             megadl "$FIRST_URL" --path .
           elif [[ "$FIRST_URL" =~ pixeldrain\.com/u/([a-zA-Z0-9]+) ]]; then
             FILE_ID="${BASH_REMATCH[1]}"
             curl -L -O -J "https://pixeldrain.com/api/file/$FILE_ID"
-          elif [[ "$FIRST_URL" == *"download"*".mediafire.com"* ]]; then
-            curl -L -O -J --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$FIRST_URL"
           else
             curl -L -O -J "$FIRST_URL" || true
           fi
@@ -130,7 +94,6 @@ jobs:
           done
           
           cd ..
-          rm -f get_mf.py
           
           if [ "$IS_ARCHIVE_FILE" = true ]; then
             echo "is_archive=true" >> $GITHUB_OUTPUT
@@ -222,59 +185,15 @@ jobs:
             
             sudo apt-get update
             sudo apt-get install -y megatools python3 python3-pip
-            python -m pip install requests beautifulsoup4 curl-cffi
+            python -m pip install gdown requests beautifulsoup4
             
-            cat << 'EOF' > get_mf.py
-          import sys, re
-          from bs4 import BeautifulSoup
-          from curl_cffi import requests
-
-          url = sys.argv[1]
-          try:
-              res = requests.get(url, impersonate="chrome110", timeout=25)
-              soup = BeautifulSoup(res.text, 'html.parser')
-              
-              btn = soup.find('a', {'id': 'downloadButton'})
-              if btn and 'href' in btn.attrs:
-                  print(btn['href'])
-              else:
-                  alt_btn = soup.select_one('a.input.popsok') or soup.find('a', attrs={'aria-label': 'Download file'})
-                  if alt_btn and 'href' in alt_btn.attrs:
-                      print(alt_btn['href'])
-                  else:
-                      all_matches = re.findall(r'(https?://[a-zA-Z0-9\-\.]*mediafire\.com/[^\s"\'<>]+)', res.text)
-                      valid_link = ''
-                      for m in all_matches:
-                          if 'download' in m and 'file' not in m and 'profile' not in m:
-                              valid_link = m
-                              break
-                              
-                      if valid_link:
-                          print(valid_link)
-                      else:
-                          links = re.findall(r'https?://download\d+\.mediafire\.com/[^\s\"\']+', res.text)
-                          print(links[0] if links else '')
-          except Exception:
-              print('')
-          EOF
-            
-            if [[ "$TARGET_URL" == *"mediafire.com"* ]]; then
-              echo "Mendeteksi link MediaFire pada target URL..."
-              DIRECT_MF=$(python3 get_mf.py "$TARGET_URL")
-              if [ -n "$DIRECT_MF" ]; then
-                TARGET_URL="$DIRECT_MF"
-                echo "Direct Link MediaFire didapatkan: $TARGET_URL"
-              fi
-            fi
-            rm -f get_mf.py
-            
-            if [[ "$TARGET_URL" =~ mega\.nz ]]; then
+            if [ "${{ github.event.inputs.DOWNLOADER }}" = "gdown" ]; then
+              gdown --fuzzy "$TARGET_URL"
+            elif [[ "$TARGET_URL" =~ mega\.nz ]]; then
               megadl "$TARGET_URL" --path .
             elif [[ "$TARGET_URL" =~ pixeldrain\.com/u/([a-zA-Z0-9]+) ]]; then
               FILE_ID="${BASH_REMATCH[1]}"
               curl -L -O -J "https://pixeldrain.com/api/file/$FILE_ID"
-            elif [[ "$TARGET_URL" == *"download"*".mediafire.com"* ]]; then
-              curl -L -O -J --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$TARGET_URL"
             else
               sudo apt-get install -y nodejs npm
               python -m pip install -U "yt-dlp[default,curl-cffi]" yt-dlp-ejs --pre
